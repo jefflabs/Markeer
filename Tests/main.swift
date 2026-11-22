@@ -105,6 +105,24 @@ check("Enter op gewone tekst → niets",en1==nil)
 // Gewone tekst zonder onverwachte transformaties: een willekeurige letter geeft niets.
 let nt=MarkdownEditing.completion(beforeCaret:"hallo ",caret:6,typed:"w",selection:NSRange(location:6,length:0),isReturn:false)
 check("gewone letter → geen voorstel",nt==nil)
+
+// Footnotes (cmark-gfm native): verwijzing → <sup class=footnote-ref>, definitie → endnote-sectie.
+let fnSrc="Tekst met een voetnoot.[^a]\n\n[^a]: De verklaring.\n"
+let fnRendered=Markdown.render(fnSrc)
+check("footnote-referentie wordt <sup>",fnRendered.blocks.contains{ $0.html.contains("footnote-ref") })
+check("footnote-definitie wordt endnote-sectie",fnRendered.blocks.contains{ $0.html.contains("data-footnotes") && $0.html.contains("De verklaring") })
+check("footnote-bron blijft [^a]",fnRendered.blocks.contains{ $0.source=="Tekst met een voetnoot.[^a]" } && fnRendered.blocks.contains{ $0.source=="[^a]: De verklaring." })
+
+// Highlight ==...== → <mark>, code-beschermend.
+let hl1=Markdown.render("Dit is ==belangrijk== tekst.\n")
+check("highlight wordt <mark> (gebeschermde inline-HTML)",hl1.blocks.first?.source.contains("<mark>belangrijk</mark>")==true)
+let hlCode=Markdown.render("```swift\nlet s = \"==niet==\"\n```\n")
+check("highlight niet in fenced code",hlCode.blocks.first?.source.contains("==niet==")==true && hlCode.blocks.first?.html.contains("<mark>")==false)
+let hlInline=Markdown.render("Inline `==code==` blijft.\n")
+check("highlight niet in inline code",hlInline.blocks.first?.html.contains("<code>==code==</code>")==true)
+// Geen == in een gewone regel → ongewijzigd.
+let hlNone=Markdown.render("Geen highlight hier.\n")
+check("gewone tekst ongewijzigd zonder ==",hlNone.blocks.first?.html=="<p>Geen highlight hier.</p>\n")
 if CommandLine.arguments.contains("--parser-only") { print("\(failures) failures");exit(failures==0 ? 0:1) }
 if CommandLine.arguments.contains("--askai") {
     var askAIFailures = 0

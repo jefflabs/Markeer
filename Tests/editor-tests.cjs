@@ -76,5 +76,20 @@ const noLangSource='```\nplain\n```\n';
 markeer.setContent({blocks:[{id:0,html:'<pre><code>plain</code></pre>',source:'```\nplain\n```'}],references:''},14,noLangSource);
 test('codeblok zonder taal blijft plain en roundtrippet',()=>assert.equal(markeer.serialize(),'```\nplain\n```\n'));
 
+
+// Footnotes: <sup class="footnote-ref"> → [^n] bij serialize.
+const fnSource='Tekst met footnote.[^1]\n\n[^1]: De voetnoot.\n';
+const fnPayload={blocks:[
+  {id:0,html:'<p>Tekst met footnote.<sup class="footnote-ref"><a href="#fn-1" id="fnref-1">1</a></sup></p>',source:'Tekst met footnote.[^1]'},
+  {id:1,html:'<section class="footnotes"><ol><li id="fn-1"><p>De voetnoot. <a href="#fnref-1" class="footnote-backref">↩</a></p></li></ol></section>',source:'[^1]: De voetnoot.'}
+],references:''};
+markeer.setContent(fnPayload,20,fnSource);
+test('footnote-referentie convergeert naar [^n]',()=>{const out=markeer.serialize();assert.ok(out.includes('Tekst met footnote.[^1]'));});
+test('footnote-definitie wordt behouden',()=>assert.ok(markeer.serialize().includes('[^1]: De voetnoot.')));
+// Highlight <mark> → ==...==
+const markSource='==belangrijk== tekst.\n';
+markeer.setContent({blocks:[{id:0,html:'<p><mark>belangrijk</mark> tekst.</p>',source:'<mark>belangrijk</mark> tekst.'}],references:''},21,markSource);
+test('mark convergeert naar ==...==',()=>assert.ok(markeer.serialize().includes('==belangrijk==')));
+
 console.log(count+' editor checks passed');
 

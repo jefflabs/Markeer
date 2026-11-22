@@ -28,6 +28,16 @@ converter.addRule('relativeImage', {filter:'img', replacement:(_,node)=>{
   const title=node.getAttribute('title');
   return '!['+alt+']('+src.replace(/ /g,'%20')+(title?' \"'+title.replace(/\"/g,'\\\"')+'\"':'')+')';
 }});
+// Footnote-referentie: <sup class="footnote-ref"><a id="fnref-1">1</a></sup> → [^1]
+converter.addRule('footnoteRef', {filter:node=>node.nodeName==='SUP' && node.classList && node.classList.contains('footnote-ref'), replacement:(_,node)=>{
+  const a=node.querySelector('a');
+  const id=a ? a.id.replace(/^fnref-/,'') : node.textContent;
+  return '[^'+id+']';
+}});
+// Highlight ==...== → <mark> (wordt door tagfilter toegelaten als bekende tag? nee —
+// we renderen het zelf via Swift-preprocess, dus hier alleen de terug-conversie).
+converter.addRule('mark', {filter:'mark', replacement:content=>'=='+content+'=='});
+converter.addRule('underline', {filter:'u', replacement:content=>'<u>'+content+'</u>'});
 let originals = new Map(), references='', lastSent='', revision=0, pendingRemote=null;
 let originalHTML='', originalMarkdown='';
 let frontMatterSource='';

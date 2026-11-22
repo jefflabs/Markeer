@@ -94,9 +94,12 @@ enum Markdown {
     static func render(_ source: String) -> RenderedMarkdown {
         let split = extractFrontMatter(source)
         let matter = split?.matter
-        let renderSource = split?.body ?? source
+        // Inline-extensies die cmark-gfm niet native ondersteunt, als veilige
+        // voorbewerking toevoegen op de body. Codeblokken/inline-code worden
+        // beschermd: binnen een fence of backticks wordt NIET omgezet.
+        let renderSource = applyMarkHighlight(split?.body ?? source)
         cmark_gfm_core_extensions_ensure_registered()
-        let options = Int32(CMARK_OPT_DEFAULT)
+        let options = Int32(CMARK_OPT_DEFAULT | CMARK_OPT_FOOTNOTES)
         guard let parser = cmark_parser_new(options) else { return .init(frontMatter: matter, blocks: [], references: "") }
         defer { cmark_parser_free(parser) }
         for name in ["table", "strikethrough", "autolink", "tasklist", "tagfilter"] {
@@ -145,6 +148,46 @@ enum Markdown {
     }
     static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    /// `==tekst==` → `<mark>tekst</mark>` (GitHub-stijl highlight), behalve binnen
+    /// gefenced codeblokken of inline-code. De bron blijft `==tekst==`; de editor
+    /// converteert `<mark>` weer terug (zie editor.js 'mark'-regel), dus roundtrip is exact.
+    static func applyMarkHighlight(_ source: String) -> String {
+        // Alleen activeren als de bron geen <mark> bevat; zo is de roundtrip
+        // stabiel: de eerste render maakt van ==..== <mark>, en de volgende
+        // renders (na editor-edit) hebben <mark> en doen niets meer.
+        if source.contains("<mark>") { return source }
+        var inFence = false
+        var fenceMarker = ""
+        var lines = source.components(separatedBy: "\n")
+        for i in lines.indices {
+            var line = lines[i]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                // Fence-toggle.
+                let marker = String(trimmed.prefix(3))
+                if !inFence { inFence = true; fenceMarker = marker }
+                else if trimmed.hasPrefix(fenceMarker) { inFence = false; fenceMarker = "" }
+                lines[i] = line
+                continue
+            }
+            if inFence { continue }
+            // Buiten code: vervang ==...== buiten inline-code-backticks.
+            lines[i] = replaceMarkOutsideCode(line)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func replaceMarkOutsideCode(_ line: String) -> String {
+        // Split op inline-code (`...`) zodat we die niet aanraken.
+        let segments = line.components(separatedBy: "`")
+        let transformed = segments.enumerated().map { idx, seg -> String in
+            // Evene segmenten = niet-code (0,2,4,…), oneven = code.
+            if idx % 2 == 1 { return seg }
+            return seg.replacingOccurrences(of: #"==([^=]+)="#, with: "<mark>$1</mark>", options: .regularExpression)
+        }
+        return transformed.joined(separator: "`")
     }
 }
 
