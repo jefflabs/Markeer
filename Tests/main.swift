@@ -82,5 +82,17 @@ _ = js("markeer.editor.innerHTML='<pre><code class=\"language-md\">```inside```<
 check("nested code fences", (js("markeer.serialize()") as? String ?? "").contains("````md"))
 _ = js("markeer.editor.innerHTML='<p><br></p>'")
 check("clearing rich document", js("markeer.serialize()") as? String == "")
+var pdfData: Data? = nil
+var pdfError: Error? = nil
+web.createPDF(configuration: WKPDFConfiguration()) { result in
+    switch result {
+    case .success(let data): pdfData = data
+    case .failure(let error): pdfError = error
+    }
+}
+spin(until: { pdfData != nil || pdfError != nil })
+check("PDF export produces data", pdfData != nil && pdfData!.count > 0)
+check("PDF export has no error", pdfError == nil)
+check("PDF is a PDF file", pdfData != nil && String(data: pdfData!.prefix(5), encoding: .ascii) == "%PDF-")
 print("\(failures) failures")
 exit(failures==0 ? 0:1)
