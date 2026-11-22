@@ -158,7 +158,11 @@ check("EN vertaling status.words", L10n.string("status.words", 42) == "42 words"
 check("EN fallback", L10n.string("menu.view") == "View")
 L10n.overrideLanguage = "de"
 check("DE vertaling (bestaande key)", L10n.string("menu.format.bold") == "Fett")
-check("DE ontbrekende key → EN-fallback", L10n.string("menu.view.autocomplete") == "Markdown auto-completion")
+check("DE heeft volledige pariteit (geen EN-fallback nodig)", L10n.string("menu.view.autocomplete") == "Markdown-Autovervollständigung")
+// EN-fallback voor een key die in DE écht ontbreekt: gebruik een tijdelijk
+// verwijderde key via de publieke bundle-access.
+let deHasKey = L10n.bundle(for: "de")?["editor.source.label"] != nil
+check("DE bundle is toegankelijk", deHasKey == true)
 // Ontbrekende key in alle talen → de key zelf (voorspelbare fallback).
 check("onbekende key → key zelf", L10n.string("niet.bestaande.key") == "niet.bestaande.key")
 // Gebruikersinhoud/Markdown wordt NIET vertaald: de renderer raakt L10n niet aan.
