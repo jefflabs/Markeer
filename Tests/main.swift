@@ -139,6 +139,31 @@ check("Preferences persistentie (na save + load)", reloaded.autocompleteEnabled 
 // Herstel defaults zodat overige tests niet worden beïnvloed.
 Preferences.default.save()
 check("Preferences herstel naar defaults", Preferences.load() == Preferences.default)
+
+// Lokalisatie: taalresolutie, fallback, vertaling, onvertaalde gebruikersinhoud.
+// 6 talen ondersteund, NL behouden.
+check("6 talen ondersteund", L10n.supported.count == 6 && L10n.supported.map(\.code).contains("nl") && L10n.supported.map(\.code).contains("en"))
+// Systeemtaalresolutie: eerste ondersteunde code wint.
+check("resolutie kiest eerste ondersteunde", L10n.resolveLanguage(fromPreferences: ["ja-JP", "nl-BE", "en"]) == "nl")
+check("resolutie valt terug op en", L10n.resolveLanguage(fromPreferences: ["ja-JP", "sv-SE"]) == "en")
+check("resolutie hanteert _-variant", L10n.resolveLanguage(fromPreferences: ["fr_FR"]) == "fr")
+// Override voor deterministische vertaaltests.
+L10n.overrideLanguage = "nl"
+defer { L10n.overrideLanguage = nil }
+check("NL vertaling status.words", L10n.string("status.words", 42) == "42 woorden")
+check("NL vertaling menu.view", L10n.string("menu.view") == "Weergave")
+check("NL plural pagina's", L10n.string("pdf.status.pages.plural", 3) == "3 pagina's")
+L10n.overrideLanguage = "en"
+check("EN vertaling status.words", L10n.string("status.words", 42) == "42 words")
+check("EN fallback", L10n.string("menu.view") == "View")
+L10n.overrideLanguage = "de"
+check("DE vertaling (bestaande key)", L10n.string("menu.format.bold") == "Fett")
+check("DE ontbrekende key → EN-fallback", L10n.string("menu.view.autocomplete") == "Markdown auto-completion")
+// Ontbrekende key in alle talen → de key zelf (voorspelbare fallback).
+check("onbekende key → key zelf", L10n.string("niet.bestaande.key") == "niet.bestaande.key")
+// Gebruikersinhoud/Markdown wordt NIET vertaald: de renderer raakt L10n niet aan.
+let mdOut = Markdown.render("# Titel\n\nHello **world**.").blocks.map(\.html).joined()
+check("Markdown-bron onvertaald door renderer", mdOut.contains("<h1>Titel</h1>") && mdOut.contains("Hello **world**".replacingOccurrences(of:"**",with:"")) || mdOut.contains("<strong>world</strong>"))
 if CommandLine.arguments.contains("--parser-only") { print("\(failures) failures");exit(failures==0 ? 0:1) }
 if CommandLine.arguments.contains("--askai") {
     var askAIFailures = 0

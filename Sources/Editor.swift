@@ -37,7 +37,13 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
     let scroll=NSScrollView()
     let split=NSSplitView()
     let status=NSTextField(labelWithString:"")
-    let modeControl=NSSegmentedControl(labels:["Markdown","Opgemaakt","Naast elkaar"],trackingMode:.selectOne,target:nil,action:nil)
+    let modeControl: NSSegmentedControl
+    // Segmentlabels worden bij setup en taalwissel bijgewerkt via updateModeLabels().
+    func updateModeLabels() {
+        modeControl.setLabel(L10n.string("menu.view.markdown"), forSegment: 0)
+        modeControl.setLabel(L10n.string("menu.view.rich"), forSegment: 1)
+        modeControl.setLabel(L10n.string("menu.view.split"), forSegment: 2)
+    }
     var web:WKWebView!
     var mode=2
     var updating=false
@@ -61,6 +67,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
 
     init(document:MarkdownDocument) {
         markdownDocument=document
+        modeControl=NSSegmentedControl(labels:[L10n.string("menu.view.markdown"),L10n.string("menu.view.rich"),L10n.string("menu.view.split")],trackingMode:.selectOne,target:nil,action:nil)
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:1120,height:780),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
         window.minSize=NSSize(width:640,height:420)
         window.title="Markeer"
@@ -105,7 +112,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         textView.maxSize=NSSize(width:CGFloat.greatestFiniteMagnitude,height:CGFloat.greatestFiniteMagnitude)
         textView.delegate=self
         textView.autocompleteEnabled = Preferences.load().autocompleteEnabled
-        textView.setAccessibilityLabel("Markdown-editor")
+        textView.setAccessibilityLabel(L10n.string("editor.source.label"))
         scroll.documentView=textView
         split.isVertical=true;split.dividerStyle = .thin
         split.addArrangedSubview(scroll);split.addArrangedSubview(web)
@@ -123,8 +130,8 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         toolbar.delegate=self;toolbar.displayMode = .iconOnly;toolbar.allowsUserCustomization=false
         window.toolbar=toolbar; window.toolbarStyle = .unified
         modeControl.target=self;modeControl.action=#selector(changeMode(_:));modeControl.selectedSegment=mode
-        modeControl.setAccessibilityLabel("Weergave")
-        modeControl.toolTip="Schakel tussen Markdown, opgemaakt en naast elkaar (⌘⇧P)"
+        modeControl.setAccessibilityLabel(L10n.string("toolbar.mode"))
+        modeControl.toolTip=L10n.string("toolbar.mode.tooltip")
         reloadFromDocument()
         if let url=Bundle.main.url(forResource:"editor",withExtension:"html") {
             web.loadFileURL(url,allowingReadAccessTo:URL(fileURLWithPath:"/",isDirectory:true))
@@ -138,11 +145,11 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
     }
     func toolbar(_ toolbar:NSToolbar,itemForItemIdentifier identifier:NSToolbarItem.Identifier,willBeInsertedIntoToolbar flag:Bool)->NSToolbarItem? {
         let item=NSToolbarItem(itemIdentifier:identifier)
-        if identifier.rawValue=="modes" { item.view=modeControl;item.label="Weergave";return item }
+        if identifier.rawValue=="modes" { item.view=modeControl;item.label=L10n.string("toolbar.mode");return item }
         let config:[String:(String,String,Selector)] = [
-            "new":("Nieuw document","doc.badge.plus",#selector(newFile)),"open":("Openen","folder",#selector(openFile)),"save":("Bewaren","square.and.arrow.down",#selector(saveFile)),
-            "exportPDF":("Exporteer naar PDF","doc.richtext",#selector(exportPDF)),
-            "bold":("Vet (⌘B)","bold",#selector(bold)),"italic":("Cursief (⌘I)","italic",#selector(italic)),"heading":("Kop","textformat.size.larger",#selector(heading)),"list":("Opsomming","list.bullet",#selector(list)),"numberedList":("Genummerde lijst (⌘⇧O)","list.number",#selector(numberedList)),"link":("Link invoegen","link",#selector(link))]
+            "new":(L10n.string("toolbar.new"),"doc.badge.plus",#selector(newFile)),"open":(L10n.string("toolbar.open"),"folder",#selector(openFile)),"save":(L10n.string("toolbar.save"),"square.and.arrow.down",#selector(saveFile)),
+            "exportPDF":(L10n.string("toolbar.exportPDF"),"doc.richtext",#selector(exportPDF)),
+            "bold":(L10n.string("toolbar.bold"),"bold",#selector(bold)),"italic":(L10n.string("toolbar.italic"),"italic",#selector(italic)),"heading":(L10n.string("toolbar.heading"),"textformat.size.larger",#selector(heading)),"list":(L10n.string("toolbar.list"),"list.bullet",#selector(list)),"numberedList":(L10n.string("toolbar.numberedList"),"list.number",#selector(numberedList)),"link":(L10n.string("toolbar.link"),"link",#selector(link))]
         guard let (label,symbol,action)=config[identifier.rawValue] else {return nil}
         item.label=label;item.toolTip=label;item.image=NSImage(systemSymbolName:symbol,accessibilityDescription:label)
         item.target=self;item.action=action
@@ -168,7 +175,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
     }
     func reloadFromDocument() {
         updating=true;textView.string=markdownDocument?.content ?? "";updating=false
-        revision += 1;webDirty=true;renderNow();updateStatus()
+        revision += 1;webDirty=true;renderNow();updateModeLabels();updateStatus()
     }
     func refreshFileLocation() {
         // Bewaren mag het DOM niet vervangen: WebKit's undo blijft zo bij dezelfde tekstnodes.
@@ -180,7 +187,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
     func textDidChange(_ notification:Notification) {
         guard !updating,let document=markdownDocument else {return}
         document.content=textView.string;document.updateChangeCount(.changeDone)
-        revision += 1;webDirty=true;renderNow();updateStatus()
+        revision += 1;webDirty=true;renderNow();updateModeLabels();updateStatus()
     }
     func renderNow() {
         guard ready,mode != 0,let document=markdownDocument else {return}
@@ -198,8 +205,8 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         let content=markdownDocument?.content ?? ""
         let words=content.split(whereSeparator:{$0.isWhitespace}).count
         let chars=content.count
-        let hint=mode==0 ? "Markdown" : mode==1 ? "Opgemaakt · direct bewerkbaar" : "Naast elkaar · beide bewerkbaar"
-        var statusText="\(words) woorden   ·   \(chars) tekens   ·   UTF-8   ·   \(hint)"
+        let hintKey=mode==0 ? "status.mode.markdown" : mode==1 ? "status.mode.rich" : "status.mode.split"
+        var statusText="\(L10n.string("status.words", words))   ·   \(L10n.string("status.chars", chars))   ·   \(L10n.string("status.encoding"))   ·   \(L10n.string(hintKey))"
         if Preferences.load().showFrontMatter, let fm=Markdown.extractFrontMatter(content)?.matter, !fm.entries.isEmpty {
             let preview=fm.entries.prefix(3).map{"\($0.0): \($0.1)"}.joined(separator: " · ")
             statusText+="   ·   \(preview)"
@@ -252,9 +259,9 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         }
     }
     @objc func link() {
-        let alert=NSAlert();alert.messageText="Link invoegen";alert.informativeText="Vul het webadres in. De geselecteerde tekst wordt de link."
+        let alert=NSAlert();alert.messageText=L10n.string("dialog.link.title");alert.informativeText=L10n.string("dialog.link.info")
         let field=NSTextField(frame:NSRect(x:0,y:0,width:350,height:26));field.stringValue="https://";alert.accessoryView=field
-        alert.addButton(withTitle:"Invoegen");alert.addButton(withTitle:"Annuleren")
+        alert.addButton(withTitle:L10n.string("dialog.link.insert"));alert.addButton(withTitle:L10n.string("dialog.link.cancel"))
         guard alert.runModal() == .alertFirstButtonReturn,let url=URL(string:field.stringValue),["https","http","mailto"].contains(url.scheme?.lowercased() ?? "") else {return}
         format("createLink",field.stringValue,prefix:"[",suffix:"](\(field.stringValue))")
     }
