@@ -77,6 +77,23 @@ function setContent(payload, nextRevision, originalSource, folder='') {
     originals.set(String(block.id),{html:section.innerHTML,source:block.source});
     editor.append(section);
   }
+  // Highlight codeblokken: hljs vervangt <code> door <code class="hljs language-x"> + spans.
+  // De tekstcontent en de taalnaam blijven intact, dus de rich-edit roundtrip
+  // (safeCodeFence-regel die op textContent + className leest) wordt niet aangetast.
+  if(window.hljs) {
+    for(const code of editor.querySelectorAll('pre > code')) {
+      const cls=(code.className||'').match(/language-(\S+)/);
+      const lang=cls ? cls[1] : '';
+      // hljs.highlightElement herkent onbekende talen zelf en laat de tekst dan intact
+      // (plain-code fallback), dus één call dekt zowel bekende als onbekende talen.
+      try { window.hljs.highlightElement(code); } catch(e) { /* plain fallback */ }
+    }
+    // originals nu de ECHTE (ge-highlightte) HTML bewaart, zodat unchanged-block detectie klopt.
+    for(const section of editor.children) {
+      const id=section.dataset.block;
+      if(originals.has(id)) originals.get(id).html=section.innerHTML;
+    }
+  }
   if(!editor.children.length) editor.innerHTML='<p><br></p>';
   lastSent=originalSource;originalMarkdown=originalSource;originalHTML=editor.innerHTML;
   window.scrollTo(0,oldScroll);

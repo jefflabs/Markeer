@@ -1,7 +1,9 @@
 <!doctype html>
 <html lang="nl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src https: http: file: data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: http: file: data:; base-uri 'none'; form-action 'none'">
+<link rel="stylesheet" href="github.min.css" media="(prefers-color-scheme: light)">
+<link rel="stylesheet" href="github-dark.min.css" media="(prefers-color-scheme: dark)">
 <style>
 :root { color-scheme:light dark; --ink:#292923; --muted:#78766e; --line:#e6e4dc; --paper:#fdfcf8; --accent:#356956; --wash:#f0eee7; }
 * {box-sizing:border-box;} body {margin:0;background:var(--paper);color:var(--ink);font:17px/1.75 -apple-system,BlinkMacSystemFont,sans-serif;}
@@ -30,5 +32,5 @@ hr {border:0;border-top:1px solid var(--line);margin:2em 0;} img {max-width:100%
   .raw-html { border:none; }
 }
 </style></head><body><article id="editor" contenteditable="true" role="textbox" aria-label="Opgemaakte Markdown-editor" aria-multiline="true" spellcheck="true"></article>
-<script src="turndown.js"></script><script src="turndown-plugin-gfm.js"></script><script src="editor.js"></script>
+<script src="turndown.js"></script><script src="turndown-plugin-gfm.js"></script><script src="highlight.min.js"></script><script src="editor.js"></script>
 </body></html>

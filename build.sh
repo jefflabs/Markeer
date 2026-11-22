@@ -12,7 +12,7 @@ FLAGS=(-I Vendor/cmark-gfm/src -I Vendor/cmark-gfm/extensions -I "$BUILD/cmark/s
 LIBS=("$BUILD/cmark/extensions/libcmark-gfm-extensions.a" "$BUILD/cmark/src/libcmark-gfm.a")
 swiftc -O -target arm64-apple-macos13.0 -module-name Markeer "${FLAGS[@]}" Sources/Markdown.swift Sources/Document.swift Sources/Editor.swift Sources/PDFDocument.swift Sources/AskAI.swift Sources/main.swift "${LIBS[@]}" -o "$DEST/Contents/MacOS/Markeer"
 cp Resources/Info.plist "$DEST/Contents/Info.plist"
-cp Resources/*.js Resources/*.html Resources/*LICENSE "$DEST/Contents/Resources/"
+cp Resources/*.js Resources/*.html Resources/*.css Resources/*LICENSE "$DEST/Contents/Resources/"
 cp Vendor/cmark-gfm/COPYING "$DEST/Contents/Resources/CMARK-LICENSE"
 if [[ -f Resources/AppIcon.icns ]]; then cp Resources/AppIcon.icns "$DEST/Contents/Resources/"; fi
 xattr -dr com.apple.FinderInfo "$DEST" 2>/dev/null || true

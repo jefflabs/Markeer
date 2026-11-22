@@ -6,7 +6,7 @@ const {window}=dom;
 window.scrollTo=()=>{};window.document.execCommand=()=>true;
 const messages=[];
 window.webkit={messageHandlers:{changed:{postMessage:x=>messages.push(x)},ready:{postMessage:()=>{}},error:{postMessage:x=>{throw Error(x)}},openLink:{postMessage:()=>{}}}};
-for(const name of ['turndown.js','turndown-plugin-gfm.js','editor.js']) window.eval(fs.readFileSync(path.join(resources,name),'utf8'));
+for(const name of ['turndown.js','turndown-plugin-gfm.js','highlight.min.js','editor.js']) window.eval(fs.readFileSync(path.join(resources,name),'utf8'));
 const source=fs.readFileSync(process.argv[2],'utf8'),payload=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
 let count=0;
 function test(name,fn){fn();count++;console.log('PASS '+name);}
@@ -59,6 +59,22 @@ markeer.setContent({blocks:[{id:0,html:'<p>Plain</p>',source:'Plain'}],reference
 test('geen front-matter → geen prepend',()=>assert.equal(markeer.serialize(),'Plain\n'));
 markeer.editor.innerHTML='<p><br></p>';
 test('clear document na front-matter',()=>assert.equal(markeer.serialize(),''));
+
+
+// Syntaxhighlighting (highlight.js): spans toegevoegd, code + taalnaam ongewijzigd bij roundtrip.
+const hlSource='```swift\nlet x = 1\n```\n';
+markeer.setContent({blocks:[{id:0,html:'<pre><code class="language-swift">let x = 1</code></pre>',source:'```swift\nlet x = 1\n```'}],references:''},12,hlSource);
+test('codeblok krijgt highlight spans',()=>{const code=document.querySelector('pre > code');assert.ok(code && (code.innerHTML.includes('<span')||code.innerHTML.includes('class="hljs')), 'geen spans');});
+test('highlight behoudt code-tekst en taal bij ongewijzigd blok',()=>assert.equal(markeer.serialize(),'```swift\nlet x = 1\n```\n'));
+document.querySelector('pre > code').textContent='let y = 2';
+test('edit binnen ge-highlight block roundtrippet naar Markdown',()=>assert.equal(markeer.serialize(),'```swift\nlet y = 2\n```\n'));
+const unknownSource='```notaal\nxyz\n```\n';
+markeer.setContent({blocks:[{id:0,html:'<pre><code class="language-notaal">xyz</code></pre>',source:'```notaal\nxyz\n```'}],references:''},13,unknownSource);
+test('onbekende taal valt terug op plain code (tekst ongewijzigd)',()=>{const code=document.querySelector('pre > code');assert.equal(code.textContent,'xyz');});
+test('onbekende taal roundtrippet exact',()=>assert.equal(markeer.serialize(),'```notaal\nxyz\n```\n'));
+const noLangSource='```\nplain\n```\n';
+markeer.setContent({blocks:[{id:0,html:'<pre><code>plain</code></pre>',source:'```\nplain\n```'}],references:''},14,noLangSource);
+test('codeblok zonder taal blijft plain en roundtrippet',()=>assert.equal(markeer.serialize(),'```\nplain\n```\n'));
 
 console.log(count+' editor checks passed');
 
