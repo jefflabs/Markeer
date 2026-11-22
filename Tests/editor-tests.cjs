@@ -6,7 +6,9 @@ const {window}=dom;
 window.scrollTo=()=>{};window.document.execCommand=()=>true;
 const messages=[];
 window.webkit={messageHandlers:{changed:{postMessage:x=>messages.push(x)},ready:{postMessage:()=>{}},error:{postMessage:x=>{throw Error(x)}},openLink:{postMessage:()=>{}}}};
-for(const name of ['turndown.js','turndown-plugin-gfm.js','highlight.min.js','editor.js']) window.eval(fs.readFileSync(path.join(resources,name),'utf8'));
+// atob polyfill voor JSDOM (base64-decoding voor math-sentinel) + KaTeX laden.
+window.atob=(s)=>Buffer.from(s,'base64').toString('binary');
+for(const name of ['turndown.js','turndown-plugin-gfm.js','highlight.min.js','katex.min.js','editor.js']) window.eval(fs.readFileSync(path.join(resources,name),'utf8'));
 const source=fs.readFileSync(process.argv[2],'utf8'),payload=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
 let count=0;
 function test(name,fn){fn();count++;console.log('PASS '+name);}
@@ -90,6 +92,30 @@ test('footnote-definitie wordt behouden',()=>assert.ok(markeer.serialize().inclu
 const markSource='==belangrijk== tekst.\n';
 markeer.setContent({blocks:[{id:0,html:'<p><mark>belangrijk</mark> tekst.</p>',source:'<mark>belangrijk</mark> tekst.'}],references:''},21,markSource);
 test('mark convergeert naar ==...==',()=>assert.ok(markeer.serialize().includes('==belangrijk==')));
+
+
+// Wiskunde (KaTeX, #1825): sentinel → KaTeX-HTML, en bij serialize terug naar notatie.
+// De Swift-render levert sentinels (⌘M0/⌘M1 + base64) in de block-html/source.
+const b64=(str)=>Buffer.from(str,'binary').toString('base64');
+// Inline \(..\]
+const inlineSrc='Laat ⌘M0'+b64('a^2+b^2')+'⌘M0 zien.\n';
+markeer.setContent({blocks:[{id:0,html:'<p>Laat ⌘M0'+b64('a^2+b^2')+'⌘M0 zien.</p>',source:inlineSrc}],references:''},30,inlineSrc);
+test('inline-math-sentinel rendert naar KaTeX-HTML',()=>{const el=markeer.editor.querySelector('.math-rendered, .math-fallback');assert.ok(el,'geen math-span');});
+// Ongeedite blok → originele source (met sentinel) behouden (vereiste: source-behoud).
+test('inline-math: ongeedite blok bewaart source',()=>{const out=markeer.serialize();assert.ok(out.includes('⌘M0'),'source niet behouden: '+out);});
+// Edit het blok → gaat door Turndown, sentinel wordt notatie.
+markeer.editor.querySelector('.math-rendered, .math-fallback').insertAdjacentText('beforebegin',' aangepast');
+test('inline-math: edit → notatie in output',()=>{const out=markeer.serialize();assert.ok(out.includes('a^2+b^2'),'formule verloren: '+out);});
+// Display $$..$$
+const dispSrc='⌘M1'+b64('x=1')+'⌘M1\n';
+markeer.setContent({blocks:[{id:0,html:'<p>⌘M1'+b64('x=1')+'⌘M1</p>',source:dispSrc}],references:''},31,dispSrc);
+test('display-math: ongeedite blok bewaart source',()=>{const out=markeer.serialize();assert.ok(out.includes('⌘M1'),'source niet behouden: '+out);});
+markeer.editor.querySelector('.math-rendered, .math-fallback').insertAdjacentText('beforebegin',' b');
+test('display-math: edit → formule in output',()=>{const out=markeer.serialize();assert.ok(out.includes('x=1'),'formule verloren: '+out);});
+// Ongebruikte formule blijft intact (geen sentinel → geen math).
+const plainSrc='Gewone tekst zonder math.\n';
+markeer.setContent({blocks:[{id:0,html:'<p>Gewone tekst zonder math.</p>',source:plainSrc}],references:''},32,plainSrc);
+test('geen math-sentinel → geen math-span',()=>{assert.equal(markeer.editor.querySelector('.math-rendered, .math-fallback'),null);});
 
 console.log(count+' editor checks passed');
 

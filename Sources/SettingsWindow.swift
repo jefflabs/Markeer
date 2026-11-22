@@ -9,15 +9,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var prefs = Preferences.load()
     private var onApply: (Preferences) -> Void = { _ in }
 
-    private let autoCheck = NSButton(checkboxWithTitle: "Markdown-autocomplete in de broneditor", target: nil, action: nil)
-    private let highlightCheck = NSButton(checkboxWithTitle: "Syntaxhighlighting voor codeblokken", target: nil, action: nil)
-    private let frontMatterCheck = NSButton(checkboxWithTitle: "Front-matter-metadata tonen in statusbalk", target: nil, action: nil)
-    private let statusBarCheck = NSButton(checkboxWithTitle: "Statusbalk tonen", target: nil, action: nil)
+    private let autoCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let highlightCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let frontMatterCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let statusBarCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let inlineDollarCheck = NSButton(checkboxWithTitle: "", target: nil, action: nil)
 
     init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 280),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Instellingen"
+        window.title = L10n.string("settings.title")
         window.center()
         super.init(window: window)
         window.delegate = self
@@ -31,21 +32,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private func buildUI() {
         guard let content = window?.contentView else { return }
-        for cb in [autoCheck, highlightCheck, frontMatterCheck, statusBarCheck] {
+        for cb in [autoCheck, highlightCheck, frontMatterCheck, statusBarCheck, inlineDollarCheck] {
             cb.target = self
             cb.action = #selector(toggle)
             cb.setAccessibilityLabel(cb.title)
         }
-        let stack = NSStackView(views: [autoCheck, highlightCheck, frontMatterCheck, statusBarCheck])
+        let stack = NSStackView(views: [autoCheck, highlightCheck, frontMatterCheck, statusBarCheck, inlineDollarCheck])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 8, right: 20)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let ok = NSButton(title: "OK", target: self, action: #selector(applyAndClose))
+        let ok = NSButton(title: L10n.string("settings.ok"), target: self, action: #selector(applyAndClose))
         ok.keyEquivalent = "\r"
-        let cancel = NSButton(title: "Annuleren", target: self, action: #selector(closeWindow))
+        let cancel = NSButton(title: L10n.string("settings.cancel"), target: self, action: #selector(closeWindow))
         cancel.keyEquivalent = "\u{1b}"
         let buttonRow = NSStackView(views: [NSView(), ok, cancel])
         buttonRow.orientation = .horizontal
@@ -67,10 +68,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func reloadFromPrefs() {
+        autoCheck.title = L10n.string("settings.autocomplete")
+        highlightCheck.title = L10n.string("settings.highlighting")
+        frontMatterCheck.title = L10n.string("settings.frontmatter")
+        statusBarCheck.title = L10n.string("settings.statusbar")
+        inlineDollarCheck.title = L10n.string("settings.inlinedollarmath")
         autoCheck.state = prefs.autocompleteEnabled ? .on : .off
         highlightCheck.state = prefs.codeHighlightingEnabled ? .on : .off
         frontMatterCheck.state = prefs.showFrontMatter ? .on : .off
         statusBarCheck.state = prefs.showStatusBar ? .on : .off
+        inlineDollarCheck.state = prefs.inlineDollarMath ? .on : .off
     }
 
     private func readFromCheckboxes() {
@@ -78,6 +85,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         prefs.codeHighlightingEnabled = highlightCheck.state == .on
         prefs.showFrontMatter = frontMatterCheck.state == .on
         prefs.showStatusBar = statusBarCheck.state == .on
+        prefs.inlineDollarMath = inlineDollarCheck.state == .on
     }
 
     @objc private func toggle() {

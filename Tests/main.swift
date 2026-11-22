@@ -178,6 +178,26 @@ for lang in L10n.supported {
 }
 check("vertaalpariteit: alle 6 talen hebben exact de EN-keyset", parityOK)
 check("geen lege vertalingen in enige taal", !emptyFound)
+
+// Wiskunde (KaTeX, taak #1825): delimiters → placeholder, code-beschermend,
+// gewone dollarbedragen onaangetast, ongeldige formules crashen niet.
+let mathInline = Markdown.render("Laat \\(a^2+b^2\\) zien.\n")
+check("\\(..\\) inline-math → sentinel", mathInline.blocks.first?.html.contains("⌘M0") == true && mathInline.blocks.first?.source.contains("⌘M0") == true)
+let mathDisplay = Markdown.render("$$\nx = \\frac{-b}{a}\n$$\n")
+check("$$..$$ display-math → display-sentinel", mathDisplay.blocks.contains { $0.source.contains("⌘M1") })
+let mathDollarOff = Markdown.render("Price is $5 and a$b stays.\n")
+check("inline $ uitgeschakeld → dollarbedragen intact", mathDollarOff.blocks.first?.source == "Price is $5 and a$b stays.")
+check("inline $ uitgeschakeld → $E=mc^2$ blijft tekst", Markdown.render("Inline $E = mc^2$ hier.\n").blocks.first?.source.contains("$E = mc^2$") == true)
+// inlineDollarMath aanzetten (voorkeur) → $..$ wordt math.
+var prefsOn = Preferences.load(); prefsOn.inlineDollarMath = true; prefsOn.save()
+defer { Preferences.default.save() }
+let mathDollarOn2 = Markdown.render("Inline $E = mc^2$ hier.\n")
+check("inline $ aangezet → $E = mc^2$ wordt math", mathDollarOn2.blocks.first?.html.contains("⌘M0") == true)
+let mathCode = Markdown.render("```swift\nlet m = \"$not-math$\"\n```\n")
+check("math niet in fenced code", mathCode.blocks.first?.source.contains("$not-math$") == true && mathCode.blocks.first?.html.contains("⌘M0") == false)
+let mathBad = Markdown.render("Ongeldig \\( geen sluiting hier.\n")
+check("ongeldige formule crash niet (blijft tekst)", mathBad.blocks.first != nil)
+
 // Systeemtaalkeuze + fallback doorlopen (acceptatie): elke ondersteunde code
 // lost op zichzelf, een onbekende taal lost op EN.
 var resolveOK = true

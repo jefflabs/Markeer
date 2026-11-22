@@ -94,10 +94,12 @@ enum Markdown {
     static func render(_ source: String) -> RenderedMarkdown {
         let split = extractFrontMatter(source)
         let matter = split?.matter
-        // Inline-extensies die cmark-gfm niet native ondersteunt, als veilige
-        // voorbewerking toevoegen op de body. Codeblokken/inline-code worden
-        // beschermd: binnen een fence of backticks wordt NIET omgezet.
-        let renderSource = applyMarkHighlight(split?.body ?? source)
+        // Wiskunde: zet math-delimiters om naar KaTeX-placeholder spans (code-aware).
+        // De editor converteert de spans weer terug naar de oorspronkelijke notatie,
+        // dus de math-bron blijft behouden bij rich edits.
+        let inlineDollar = Preferences.load().inlineDollarMath
+        // Wiskunde eerst (maakt placeholders), daarna highlight ==...==.
+        let renderSource = applyMarkHighlight(applyMath(split?.body ?? source, inlineDollar: inlineDollar))
         cmark_gfm_core_extensions_ensure_registered()
         let options = Int32(CMARK_OPT_DEFAULT | CMARK_OPT_FOOTNOTES)
         guard let parser = cmark_parser_new(options) else { return .init(frontMatter: matter, blocks: [], references: "") }
@@ -135,7 +137,14 @@ enum Markdown {
         var child = cmark_node_first_child(node)
         while let current = child {
             child = cmark_node_next(current)
-            if cmark_node_get_type(current) == CMARK_NODE_HTML_INLINE,
+            // Laat math-placeholders onaangetast: de editor converteert deze terug
+            // naar de oorspronkelijke notatie (katex-src), dus geen raw-HTML-protectie.
+            let isMath = cmark_node_get_type(current) == CMARK_NODE_HTML_INLINE &&
+                { () -> Bool in
+                    guard let lit = cmark_node_get_literal(current) else { return false }
+                    return String(cString: lit).contains("data-math-placeholder")
+                }()
+            if cmark_node_get_type(current) == CMARK_NODE_HTML_INLINE && !isMath,
                let literal = cmark_node_get_literal(current),
                let replacement = cmark_node_new(CMARK_NODE_CUSTOM_INLINE) {
                 let safe = "<code data-raw-inline=\"true\">" + escape(String(cString: literal)) + "</code>"
@@ -188,6 +197,118 @@ enum Markdown {
             return seg.replacingOccurrences(of: #"==([^=]+)="#, with: "<mark>$1</mark>", options: .regularExpression)
         }
         return transformed.joined(separator: "`")
+    }
+
+    /// Zet math-delimiters om naar KaTeX-placeholder spans zodat cmark-gfm de
+    /// wiskunde niet als gewone tekst/HTML breekt. Onbekende of onvolledige
+    /// formules blijven gewoon tekst (geen crash). Codeblokken en inline-code
+    /// worden beschermd. De editor (editor.js) converteert de spans terug naar
+    /// de oorspronkelijke notatie, zodat de math-bron behouden blijft.
+    static func applyMath(_ source: String, inlineDollar: Bool) -> String {
+        var inFence = false
+        var fenceMarker = ""
+        var inDisplayMath = false
+        var mathLines: [String] = []
+        var mathIndent = ""
+        var out: [String] = []
+        var lines = source.components(separatedBy: "\n")
+        var i = 0
+        func flushMath() {
+            let formula = mathLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            out.append(mathIndent + mathSpan(formula, display: true))
+            mathLines = []
+        }
+        while i < lines.count {
+            let raw = lines[i]
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            // Fence-detectie (alleen buiten display-math).
+            if !inDisplayMath && (trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")) {
+                let marker = String(trimmed.prefix(3))
+                if !inFence { inFence = true; fenceMarker = marker }
+                else if trimmed.hasPrefix(fenceMarker) { inFence = false; fenceMarker = "" }
+                out.append(raw)
+                i += 1
+                continue
+            }
+            if inFence { out.append(raw); i += 1; continue }
+            // Buiten code.
+            if inDisplayMath {
+                if trimmed.hasSuffix("$$") || trimmed == "$$" {
+                    // Sluitende regel: alles vóór het laatste $$ is formule-inhoud.
+                    let closePre = String(trimmed.dropLast(2))
+                    if !closePre.trimmingCharacters(in: .whitespaces).isEmpty { mathLines.append(closePre) }
+                    flushMath()
+                    inDisplayMath = false
+                } else {
+                    mathLines.append(raw)
+                }
+                i += 1
+                continue
+            }
+            // Openen we display-math? ($$ op een niet-code regel, mogelijk met inhoud)
+            let isCodeLine = inInlineCode(raw)
+            if !isCodeLine {
+                if trimmed.hasPrefix("$$") {
+                    // Zelfde-regel sluiting? $$...$$
+                    if trimmed.count >= 4 && trimmed.hasSuffix("$$") {
+                        let formula = String(trimmed.dropFirst(2).dropLast(2))
+                        out.append(raw.replacingOccurrences(of: trimmed, with: mathSpan(formula, display: true)))
+                        i += 1
+                        continue
+                    }
+                    // Multi-line: openen.
+                    inDisplayMath = true
+                    mathIndent = String(raw.prefix(while: { $0 == " " || $0 == "\t" }))
+                    let after = String(trimmed.dropFirst(2))
+                    if !after.trimmingCharacters(in: .whitespaces).isEmpty { mathLines.append(after) }
+                    i += 1
+                    continue
+                }
+            }
+            out.append(replaceMathOutsideCode(raw, inlineDollar: inlineDollar))
+            i += 1
+        }
+        if inDisplayMath { flushMath() } // onvoltooid: weeg de bron op als math (geen crash)
+        return out.joined(separator: "\n")
+    }
+
+    /// True als de regel zich in een inline-code-segment bevindt (oneven aantal backticks).
+    private static func inInlineCode(_ line: String) -> Bool {
+        line.filter { $0 == "`" }.count % 2 == 1
+    }
+
+    static func replaceMathOutsideCode(_ line: String, inlineDollar: Bool) -> String {
+        // Split op inline-code zodat we die niet aanraken.
+        let segments = line.components(separatedBy: "`")
+        let transformed = segments.enumerated().map { idx, seg -> String in
+            if idx % 2 == 1 { return seg } // code: onaangetast
+            var out = seg
+            // $$...$$ display-math (op één regel).
+            out = out.replacingOccurrences(of: #"\$\$(.+?)\$\$"#, with: mathSpan("$1", display: true), options: .regularExpression)
+            // \.\[...\] display-math.
+            out = out.replacingOccurrences(of: #"\\\[([^\]]+?)\\\]"#, with: mathSpan("$1", display: true), options: .regularExpression)
+            // \.\(...\) inline-math.
+            out = out.replacingOccurrences(of: #"\\\(([^)]+?)\\\)"#, with: mathSpan("$1", display: false), options: .regularExpression)
+            if inlineDollar {
+                // $...$ inline-math; vereist dat er vóór de opening en na de
+                // sluiting geen cijfer/letter direct staat, zodat $5 of a$b niet
+                // wordt aangepakt. Ook geen lege $ $.
+                out = out.replacingOccurrences(of: #"(?<![\\$\\w])\$([^$\\n]+?)\$(?![\\w$])"#, with: mathSpan("$1", display: false), options: .regularExpression)
+            }
+            return out
+        }
+        return transformed.joined(separator: "`")
+    }
+
+    /// Plaatshouderspan die de editor terugherkent. `katex-src` bevaat de
+        /// Plaatshouders als veilige plain-text sentinel: cmark-gfm rendert dit gewoon
+    /// als tekst (geen HTML, dus veilig), de editor.js herkent het en rendert KaTeX,
+    /// en bij serialize gaat het terug naar de oorspronkelijke notatie. De formule
+    /// zit base64-encoded zodat speciale tekens niet breken.
+    static func mathSpan(_ formula: String, display: Bool) -> String {
+        let b64 = Data(formula.utf8).base64EncodedString()
+        let marker = display ? "⌘M1" : "⌘M0"  // M1=display, M0=inline
+        return "\(marker)\(b64)\(marker)"
     }
 }
 

@@ -38,6 +38,49 @@ converter.addRule('footnoteRef', {filter:node=>node.nodeName==='SUP' && node.cla
 // we renderen het zelf via Swift-preprocess, dus hier alleen de terug-conversie).
 converter.addRule('mark', {filter:'mark', replacement:content=>'=='+content+'=='});
 converter.addRule('underline', {filter:'u', replacement:content=>'<u>'+content+'</u>'});
+// Gerenderde math-span (KaTeX of fallback) → oorspronkelijke notatie bij serialize.
+converter.addRule('mathRendered', {filter:node=>node.nodeType===1 && node.hasAttribute && node.hasAttribute('katex-src') && node.classList && (node.classList.contains('math-rendered')||node.classList.contains('math-fallback')), replacement:(_,node)=>{
+  const src=node.getAttribute('katex-src')||'';
+  const display=node.getAttribute('data-math-display')==='true';
+  return display ? '$$'+src+'$$' : '$'+src+'$';
+}});
+// Math-sentinel (van Swift-preprocess) → oorspronkelijke notatie, zodat de
+// math-bron behouden blijft bij rich edits. Sentinelvorm: ⌘M0<base64>⌘M0 (inline)
+// of ⌘M1<base64>⌘M1 (display). base64 wordt naar de formule gede decodeerd.
+converter.addRule('mathSentinel', {filter:node=>node.nodeType===3 && /⌘M[01][A-Za-z0-9+/=]+⌘M[01]/.test(node.nodeValue||''), replacement:(_,node)=>{
+  const m=(node.nodeValue||'').match(/⌘M([01])([A-Za-z0-9+/=]+)⌘M\1/);
+  if(!m) return node.nodeValue||'';
+  const display=m[1]==='1';
+  const src=atob(m[2]);
+  return display ? '$$'+src+'$$' : '$'+src+'$';
+}});
+function b64decode(s){ try { return atob(s); } catch(e){ return s; } }
+function renderMath(root) {
+  if(!root) return;
+  // Vind sentinel-textnodes en vervang ze door KaTeX-HTML (of plain fallback).
+  const walker=document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const found=[];
+  let n;
+  while(n=walker.nextNode()) { if(/⌘M[01][A-Za-z0-9+/=]+⌘M[01]/.test(n.nodeValue||'')) found.push(n); }
+  for(const textNode of found) {
+    const html=textNode.nodeValue.replace(/⌘M([01])([A-Za-z0-9+/=]+)⌘M\1/g, (_,disp,b64)=>{
+      const src=b64decode(b64); const display=disp==='1';
+      const srcAttr=src.replace(/"/g,'&quot;');
+      if(window.katex) {
+        try {
+          const khtml=window.katex.renderToString(src,{displayMode:display,throwOnError:false,output:'html'});
+          return '<span class="math-rendered" katex-src="'+srcAttr+'" data-math-display="'+display+'">'+khtml+'</span>';
+        } catch(e){}
+      }
+      // Fallback (KaTeX afwezig/fout): toon de formule leesbaar, bron bewaard.
+      const inner=(display?'$$':'$')+src.replace(/</g,'&lt;')+(display?'$$':'$');
+      return '<span class="math-fallback" katex-src="'+srcAttr+'" data-math-display="'+display+'">'+inner+'</span>';
+    });
+    const span=document.createElement('span'); span.innerHTML=html;
+    while(span.firstChild) textNode.parentNode.insertBefore(span.firstChild, textNode);
+    textNode.parentNode.removeChild(textNode);
+  }
+}
 let originals = new Map(), references='', lastSent='', revision=0, pendingRemote=null;
 let originalHTML='', originalMarkdown='';
 let frontMatterSource='';
@@ -87,6 +130,8 @@ function setContent(payload, nextRevision, originalSource, folder='') {
     originals.set(String(block.id),{html:section.innerHTML,source:block.source});
     editor.append(section);
   }
+  // Wiskunde renderen met KaTeX (na highlight, vóór originals-friegen).
+  renderMath(editor);
   // Highlight codeblokken: hljs vervangt <code> door <code class="hljs language-x"> + spans.
   // De tekstcontent en de taalnaam blijven intact, dus de rich-edit roundtrip
   // (safeCodeFence-regel die op textContent + className leest) wordt niet aangetast.

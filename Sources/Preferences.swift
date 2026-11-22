@@ -13,12 +13,16 @@ struct Preferences: Codable, Equatable {
     var showFrontMatter: Bool
     /// Voortgangs-/statusbalk onderaan het venster.
     var showStatusBar: Bool
+    /// Inline-math met enkele dollar ($...$) herkennen. Uitgeschakeld houdt
+    /// gewone dollarbedragen (bv $5) intact; $$...$$, \[..\] en \(..\) werken altijd.
+    var inlineDollarMath: Bool
 
     static let `default` = Preferences(
         autocompleteEnabled: true,
         codeHighlightingEnabled: true,
         showFrontMatter: true,
-        showStatusBar: true
+        showStatusBar: true,
+        inlineDollarMath: false
     )
 
     private static let key = "Markeer.preferences"

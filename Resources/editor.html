@@ -4,6 +4,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: http: file: data:; base-uri 'none'; form-action 'none'">
 <link rel="stylesheet" href="github.min.css" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="github-dark.min.css" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="katex.min.css">
 <style>
 :root { color-scheme:light dark; --ink:#292923; --muted:#78766e; --line:#e6e4dc; --paper:#fdfcf8; --accent:#356956; --wash:#f0eee7; }
 * {box-sizing:border-box;} body {margin:0;background:var(--paper);color:var(--ink);font:17px/1.75 -apple-system,BlinkMacSystemFont,sans-serif;}
@@ -18,6 +19,7 @@ ul,ol {padding-left:1.55em;margin:0 0 1em;} li {padding-left:.15em;} li p {margi
 input[type=checkbox] {accent-color:var(--accent);margin-right:.55em;} table {border-collapse:collapse;width:100%;margin:1em 0 1.5em;font-size:.93em;} th,td {border:1px solid var(--line);padding:9px 13px;text-align:left;} th {background:var(--wash);font-weight:600;}
 hr {border:0;border-top:1px solid var(--line);margin:2em 0;} img {max-width:100%;height:auto;border-radius:6px;}
 ::selection {background:#bfd7c8;} .raw-html {color:var(--muted);font-size:13px;border:1px dashed var(--line);}
+.math-rendered {display:inline-block;white-space:normal;} .math-rendered[data-math-display="true"] {display:block;text-align:center;margin:.6em 0;}
 @media(prefers-color-scheme:dark) {:root {--ink:#e7e5dc;--muted:#a5a499;--line:#3c4039;--paper:#222620;--accent:#9bc8af;--wash:#2c312a;} ::selection {background:#45634f;}}
 @media(max-width:600px) {article {padding:32px 28px 100px;font-size:16px;}}
 @media print {
@@ -32,5 +34,5 @@ hr {border:0;border-top:1px solid var(--line);margin:2em 0;} img {max-width:100%
   .raw-html { border:none; }
 }
 </style></head><body><article id="editor" contenteditable="true" role="textbox" aria-label="Opgemaakte Markdown-editor" aria-multiline="true" spellcheck="true"></article>
-<script src="turndown.js"></script><script src="turndown-plugin-gfm.js"></script><script src="highlight.min.js"></script><script src="editor.js"></script>
+<script src="turndown.js"></script><script src="turndown-plugin-gfm.js"></script><script src="highlight.min.js"></script><script src="katex.min.js"></script><script src="editor.js"></script>
 </body></html>
