@@ -25,7 +25,7 @@ final class MarkeerPDFDocument: NSDocument {
     }
 }
 
-final class PDFWindowController: NSWindowController {
+final class PDFWindowController: NSWindowController, NSToolbarDelegate {
     weak var pdfDocument: MarkeerPDFDocument?
     let sidebar = NSScrollView()
     let sidebarList = NSStackView()
@@ -48,6 +48,12 @@ final class PDFWindowController: NSWindowController {
 
     func setup() {
         guard let window else { return }
+        let toolbar = NSToolbar(identifier: "MarkeerPDFToolbar")
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        toolbar.delegate = self
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         let root = NSView(); window.contentView = root
         let split = NSSplitView(); split.isVertical = true; split.dividerStyle = .thin
         root.addSubview(split)
@@ -93,6 +99,56 @@ final class PDFWindowController: NSWindowController {
         split.setPosition(640, ofDividerAt: 1)
         pdfView.document = pdfDocument?.pdf
         reloadFromDocument()
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(toolbar) }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [NSToolbarItem.Identifier("addNote"), NSToolbarItem.Identifier("deleteNote")]
+    }
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        if identifier.rawValue == "addNote" {
+            item.label = "Voeg aantekening toe"; item.toolTip = "Voeg aantekening toe"
+            item.image = NSImage(systemSymbolName: "note.text.badge.plus", accessibilityDescription: "Voeg aantekening toe")
+            item.target = self; item.action = #selector(addTextNote)
+        } else if identifier.rawValue == "deleteNote" {
+            item.label = "Verwijder aantekening"; item.toolTip = "Verwijder aantekening"
+            item.image = NSImage(systemSymbolName: "note.text.badge.minus", accessibilityDescription: "Verwijder aantekening")
+            item.target = self; item.action = #selector(deleteSelectedNote)
+        }
+        return item
+    }
+
+    @objc func addTextNote() {
+        guard let page = pdfView.currentPage else { return }
+        let alert = NSAlert()
+        alert.messageText = "Voeg aantekening toe"
+        alert.informativeText = "Typ de notitie die aan deze pagina wordt toegevoegd."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 350, height: 26))
+        field.placeholderString = "Notitie…"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Toevoegen")
+        alert.addButton(withTitle: "Annuleren")
+        guard alert.runModal() == .alertFirstButtonReturn, !field.stringValue.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let bounds = page.bounds(for: .mediaBox)
+        let noteSize = NSSize(width: 90, height: 32)
+        let origin = NSPoint(x: bounds.width - noteSize.width - 16, y: bounds.height - noteSize.height - 16)
+        let rect = NSRect(origin: origin, size: noteSize)
+        let annotation = PDFAnnotation(bounds: rect, forType: .text, withProperties: [
+            PDFAnnotationKey.contents: field.stringValue,
+            PDFAnnotationKey.name: "Aantekening"
+        ])
+        page.addAnnotation(annotation)
+        pdfDocument?.updateChangeCount(.changeDone)
+        pdfView.annotationsChanged(on: page)
+    }
+
+    @objc func deleteSelectedNote() {
+        guard let page = pdfView.currentPage else { return }
+        guard let last = page.annotations.last else { return }
+        page.removeAnnotation(last)
+        pdfDocument?.updateChangeCount(.changeDone)
+        pdfView.annotationsChanged(on: page)
     }
 
     func reloadFromDocument() {
