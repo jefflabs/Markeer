@@ -19,6 +19,7 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
     @objc func list(_ sender:Any?) {editor?.list()}
     @objc func numberedList(_ sender:Any?) {editor?.numberedList()}
     @objc func link(_ sender:Any?) {editor?.link()}
+    @objc func exportPDF(_ sender:Any?) {editor?.exportPDF()}
     @objc func about(_ sender:Any?) {
         NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Markeer",.applicationVersion:"1.0.2",.credits:NSAttributedString(string:"Een rustige plek voor Markdown.\nNative macOS · lokale bestanden · drie weergaven\n\nGebouwd voor Jeffrey.")])
     }
@@ -57,6 +58,8 @@ item(file,"Sluit",#selector(NSWindow.performClose(_:)),"w")
 item(file,"Bewaar",#selector(NSDocument.save(_:)),"s")
 item(file,"Bewaar als…",#selector(NSDocument.saveAs(_:)),"s",[.command,.shift])
 item(file,"Herstel naar bewaarde versie…",#selector(NSDocument.revertToSaved(_:)))
+file.addItem(.separator())
+item(file,"Exporteer naar PDF…",#selector(AppDelegate.exportPDF(_:)),"p",[.command,.shift],delegate)
 let edit=menu("Wijzig")
 item(edit,"Maak ongedaan",Selector(("undo:")),"z")
 item(edit,"Opnieuw",Selector(("redo:")),"z",[.command,.shift])

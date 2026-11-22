@@ -18,6 +18,17 @@ hr {border:0;border-top:1px solid var(--line);margin:2em 0;} img {max-width:100%
 ::selection {background:#bfd7c8;} .raw-html {color:var(--muted);font-size:13px;border:1px dashed var(--line);}
 @media(prefers-color-scheme:dark) {:root {--ink:#e7e5dc;--muted:#a5a499;--line:#3c4039;--paper:#222620;--accent:#9bc8af;--wash:#2c312a;} ::selection {background:#45634f;}}
 @media(max-width:600px) {article {padding:32px 28px 100px;font-size:16px;}}
+@media print {
+  @page { margin: 2cm; }
+  body { background:#fff; color:#000; }
+  article { max-width:none; padding:0; min-height:0; }
+  pre, code, .raw-html { white-space:pre-wrap; word-break:break-word; }
+  table { page-break-inside:auto; }
+  tr { page-break-inside:avoid; }
+  h1,h2,h3,h4,h5,h6 { page-break-after:avoid; }
+  img { page-break-inside:avoid; }
+  .raw-html { border:none; }
+}
 </style></head><body><article id="editor" contenteditable="true" role="textbox" aria-label="Opgemaakte Markdown-editor" aria-multiline="true" spellcheck="true"></article>
 <script src="turndown.js"></script><script src="turndown-plugin-gfm.js"></script><script src="editor.js"></script>
 </body></html>

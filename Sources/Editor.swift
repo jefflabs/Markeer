@@ -96,13 +96,14 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
     deinit { web?.configuration.userContentController.removeAllScriptMessageHandlers() }
     func toolbarAllowedItemIdentifiers(_ toolbar:NSToolbar)->[NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(toolbar) }
     func toolbarDefaultItemIdentifiers(_ toolbar:NSToolbar)->[NSToolbarItem.Identifier] {
-        [NSToolbarItem.Identifier("new"),NSToolbarItem.Identifier("open"),NSToolbarItem.Identifier("save"),.flexibleSpace,NSToolbarItem.Identifier("modes"),.flexibleSpace,NSToolbarItem.Identifier("bold"),NSToolbarItem.Identifier("italic"),NSToolbarItem.Identifier("heading"),NSToolbarItem.Identifier("list"),NSToolbarItem.Identifier("numberedList"),NSToolbarItem.Identifier("link")]
+        [NSToolbarItem.Identifier("new"),NSToolbarItem.Identifier("open"),NSToolbarItem.Identifier("save"),NSToolbarItem.Identifier("exportPDF"),.flexibleSpace,NSToolbarItem.Identifier("modes"),.flexibleSpace,NSToolbarItem.Identifier("bold"),NSToolbarItem.Identifier("italic"),NSToolbarItem.Identifier("heading"),NSToolbarItem.Identifier("list"),NSToolbarItem.Identifier("numberedList"),NSToolbarItem.Identifier("link")]
     }
     func toolbar(_ toolbar:NSToolbar,itemForItemIdentifier identifier:NSToolbarItem.Identifier,willBeInsertedIntoToolbar flag:Bool)->NSToolbarItem? {
         let item=NSToolbarItem(itemIdentifier:identifier)
         if identifier.rawValue=="modes" { item.view=modeControl;item.label="Weergave";return item }
         let config:[String:(String,String,Selector)] = [
             "new":("Nieuw document","doc.badge.plus",#selector(newFile)),"open":("Openen","folder",#selector(openFile)),"save":("Bewaren","square.and.arrow.down",#selector(saveFile)),
+            "exportPDF":("Exporteer naar PDF","doc.richtext",#selector(exportPDF)),
             "bold":("Vet (⌘B)","bold",#selector(bold)),"italic":("Cursief (⌘I)","italic",#selector(italic)),"heading":("Kop","textformat.size.larger",#selector(heading)),"list":("Opsomming","list.bullet",#selector(list)),"numberedList":("Genummerde lijst (⌘⇧O)","list.number",#selector(numberedList)),"link":("Link invoegen","link",#selector(link))]
         guard let (label,symbol,action)=config[identifier.rawValue] else {return nil}
         item.label=label;item.toolTip=label;item.image=NSImage(systemSymbolName:symbol,accessibilityDescription:label)
@@ -213,5 +214,28 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         alert.addButton(withTitle:"Invoegen");alert.addButton(withTitle:"Annuleren")
         guard alert.runModal() == .alertFirstButtonReturn,let url=URL(string:field.stringValue),["https","http","mailto"].contains(url.scheme?.lowercased() ?? "") else {return}
         format("createLink",field.stringValue,prefix:"[",suffix:"](\(field.stringValue))")
+    }
+    @objc func exportPDF() {
+        guard let document=markdownDocument else {return}
+        let save=NSSavePanel()
+        save.canCreateDirectories=true
+        save.allowedContentTypes=[.pdf]
+        save.nameFieldStringValue=(document.displayName ?? "Document").replacingOccurrences(of: ".md",with: "") + ".pdf"
+        save.title="Exporteer naar PDF"
+        guard save.runModal() == .OK, let url=save.url else {return}
+        let previousMode=mode
+        if mode == 0 { setMode(1) }
+        renderNow()
+        let configuration=WKPDFConfiguration()
+        web.createPDF(configuration: configuration) { [weak self] result in
+            guard let self=self else {return}
+            if previousMode == 0 { setMode(0) }
+            switch result {
+            case .failure(let error): NSLog("Markeer PDF export error: %@",error.localizedDescription)
+            case .success(let data):
+                do { try data.write(to: url,options: .atomic) }
+                catch { NSLog("Markeer PDF export write error: %@",error.localizedDescription) }
+            }
+        }
     }
 }
