@@ -161,7 +161,12 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         let words=content.split(whereSeparator:{$0.isWhitespace}).count
         let chars=content.count
         let hint=mode==0 ? "Markdown" : mode==1 ? "Opgemaakt · direct bewerkbaar" : "Naast elkaar · beide bewerkbaar"
-        status.stringValue="\(words) woorden   ·   \(chars) tekens   ·   UTF-8   ·   \(hint)"
+        var statusText="\(words) woorden   ·   \(chars) tekens   ·   UTF-8   ·   \(hint)"
+        if let fm=Markdown.extractFrontMatter(content)?.matter, !fm.entries.isEmpty {
+            let preview=fm.entries.prefix(3).map{"\($0.0): \($0.1)"}.joined(separator: " · ")
+            statusText+="   ·   \(preview)"
+        }
+        status.stringValue=statusText
     }
     func userContentController(_ controller:WKUserContentController,didReceive message:WKScriptMessage) {
         switch message.name {

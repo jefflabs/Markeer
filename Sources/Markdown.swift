@@ -5,25 +5,108 @@ struct RenderBlock: Codable {
     let html: String
     let source: String
 }
+struct FrontMatter: Codable {
+    let source: String
+    let entries: [(String, String)]
+    init(source: String, entries: [(String, String)]) { self.source = source; self.entries = entries }
+    // Alleen de exacte brontekst wordt overgebracht; entries worden lokaal uit bron gegenereerd
+    // zodat JS-side nooit zelf moet parsen en roundtrip byte-exact blijft.
+    private struct Box: Codable { let source: String }
+    init(from decoder: Decoder) throws {
+        let box = try Box(from: decoder)
+        self.source = box.source
+        self.entries = Markdown.parseYAMLEntriesFromString(box.source)
+    }
+    func encode(to encoder: Encoder) throws {
+        try Box(source: source).encode(to: encoder)
+    }
+}
 struct RenderedMarkdown: Codable {
+    let frontMatter: FrontMatter?
     let blocks: [RenderBlock]
     let references: String
 }
 
 enum Markdown {
+    /// Herkent uitsluitend een YAML-front-matterblok op het documentbegin (Jekyll-conventie).
+    /// Een lege eerste regel, voorafgaande ruimte of een afsluiting anders dan exact "---"
+    /// maken het blok niet-herkenbaar; de body wordt dan integraal gerenderd.
+    /// Gemaakt als (matter, body) zodat de UI het blok exact kan hergebruiken (roundtrip).
+    static func extractFrontMatter(_ source: String) -> (matter: FrontMatter, body: String)? {
+        let lines = source.components(separatedBy: "\n")
+        guard lines.first == "---" else { return nil }
+        guard let closeIdx = lines.dropFirst().firstIndex(of: "---") else { return nil }
+        let matterLines = Array(lines[0..<closeIdx+1])
+        let bodyLines = Array(lines[(closeIdx+1)...])
+        let matterSource = matterLines.joined(separator: "\n")
+        let body = bodyLines.joined(separator: "\n")
+        let entries = parseYAMLEntries(matterLines.dropFirst().dropLast())
+        return (FrontMatter(source: matterSource, entries: entries), body)
+    }
+    static func parseYAMLEntriesFromString(_ block: String) -> [(String, String)] {
+        let lines = block.components(separatedBy: "\n")
+        // Verwacht de eerste en laatste regel zijn "---"; strip ze zodat parseYAMLEntries(
+        // [String]) de werkelijke key/value-regels ziet.
+        guard lines.first == "---", let last = lines.last, last == "---" else { return [] }
+        return parseYAMLEntries(Array(lines.dropFirst().dropLast()))
+    }
+    /// Platte key: value-mapping lezen uit front-matterregels (Jekyll-standaard).
+    /// Ondersteunt inline scalar, block scalar (|, >), inline lijst [a, b] en eenvoudige
+    /// geneste lijsten (regels die beginnen met "- ") onder een lege key.
+    static func parseYAMLEntries(_ lines: [String]) -> [(String, String)] {
+        var entries: [(String, String)] = []
+        var currentKey: String? = nil
+        var buffer: [String] = []
+        var inBlock = false
+        func flush() {
+            guard let k = currentKey else { return }
+            let value = buffer.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            entries.append((k, value))
+            currentKey = nil; buffer = []; inBlock = false
+        }
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if inBlock {
+                if line.hasPrefix(" ") || line.hasPrefix("\t") || trimmed.isEmpty {
+                    buffer.append(trimmed)
+                    continue
+                } else { flush() }
+            }
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            if let colon = trimmed.firstIndex(of: ":") {
+                let k = String(trimmed[..<colon]).trimmingCharacters(in: .whitespaces)
+                let v = String(trimmed[trimmed.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+                flush()
+                currentKey = k
+                if ["|","|+","|-",">",">+",">-"].contains(v) { inBlock = true; buffer = [] }
+                else { buffer = [v] }
+                continue
+            }
+            // lijst-item onder huidige key
+            if trimmed.hasPrefix("- "), currentKey != nil {
+                buffer.append(String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces))
+            }
+        }
+        flush()
+        return entries
+    }
+
     static func render(_ source: String) -> RenderedMarkdown {
+        let split = extractFrontMatter(source)
+        let matter = split?.matter
+        let renderSource = split?.body ?? source
         cmark_gfm_core_extensions_ensure_registered()
         let options = Int32(CMARK_OPT_DEFAULT)
-        guard let parser = cmark_parser_new(options) else { return .init(blocks: [], references: "") }
+        guard let parser = cmark_parser_new(options) else { return .init(frontMatter: matter, blocks: [], references: "") }
         defer { cmark_parser_free(parser) }
         for name in ["table", "strikethrough", "autolink", "tasklist", "tagfilter"] {
             name.withCString { if let ext = cmark_find_syntax_extension($0) { cmark_parser_attach_syntax_extension(parser, ext) } }
         }
-        source.withCString { cmark_parser_feed(parser, $0, source.utf8.count) }
-        guard let root = cmark_parser_finish(parser) else { return .init(blocks: [], references: "") }
+        renderSource.withCString { cmark_parser_feed(parser, $0, renderSource.utf8.count) }
+        guard let root = cmark_parser_finish(parser) else { return .init(frontMatter: matter, blocks: [], references: "") }
         defer { cmark_node_free(root) }
         preserveInlineHTML(root)
-        let lines = source.components(separatedBy: "\n")
+        let lines = renderSource.components(separatedBy: "\n")
         var covered = Set<Int>()
         var blocks: [RenderBlock] = []
         var node = cmark_node_first_child(root)
@@ -43,7 +126,7 @@ enum Markdown {
             node = cmark_node_next(current)
         }
         let references = lines.enumerated().filter { !covered.contains($0.offset) && !$0.element.trimmingCharacters(in: .whitespaces).isEmpty }.map(\.element).joined(separator: "\n")
-        return .init(blocks: blocks, references: references)
+        return .init(frontMatter: matter, blocks: blocks, references: references)
     }
     static func preserveInlineHTML(_ node: OpaquePointer) {
         var child = cmark_node_first_child(node)

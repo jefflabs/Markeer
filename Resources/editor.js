@@ -30,6 +30,7 @@ converter.addRule('relativeImage', {filter:'img', replacement:(_,node)=>{
 }});
 let originals = new Map(), references='', lastSent='', revision=0, pendingRemote=null;
 let originalHTML='', originalMarkdown='';
+let frontMatterSource='';
 let composing=false;
 function serialize() {
   if(editor.innerHTML===originalHTML) return originalMarkdown;
@@ -44,7 +45,13 @@ function serialize() {
     }
   }
   if(references && pieces.length) pieces.push(references);
-  return pieces.join('\n\n')+(pieces.length?'\n':'');
+  let body=pieces.join('\n\n')+(pieces.length?'\n':'');
+  // Een Jekyll-voorbeeld heeft een lege regel tussen de afsluiting en de body; dat
+  // behouden we exact wanneer de bron dat had (frontMatter.source eindigt op "---\n").
+  const hadTrailingBlank=frontMatterSource && body && frontMatterSource.endsWith('\n---\n');
+  const base=frontMatterSource ? frontMatterSource.replace(/\n+$/,'') : '';
+  if(base && body) return base + '\n' + (hadTrailingBlank ? '\n' : '') + body;
+  return body;
 }
 function sendChange() {
   if(composing) return;
@@ -57,6 +64,7 @@ function setContent(payload, nextRevision, originalSource, folder='') {
   if(composing) {pendingRemote=[payload,nextRevision,originalSource]; return;}
   const oldScroll=window.scrollY;
   originals=new Map(); references=payload.references; revision=nextRevision;
+  frontMatterSource=payload.frontMatter ? payload.frontMatter.source : '';
   editor.replaceChildren();
   for(const block of payload.blocks) {
     const section=document.createElement('section'); section.dataset.block=String(block.id);

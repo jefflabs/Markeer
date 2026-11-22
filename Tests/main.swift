@@ -42,6 +42,28 @@ let utf16="# UTF16\n".data(using:.utf16)!
 try! document.read(from:utf16,ofType:"net.markeer.markdown")
 check("document UTF-16 import",document.content=="# UTF16\n")
 do { try document.read(from:Data([0xff,0xff,0xff]),ofType:"net.markeer.markdown");check("invalid encoding rejected",false) } catch {check("invalid encoding rejected",true)}
+
+// Front-matter (Jekyll-conventie) — herkennen, renderen, exact behouden.
+let fmSource="---\ntitle: Café 🌱\ndate: 2026-11-22\ntags: [test, ünicode]\ndraft: true\n---\n\n# Kop\n\nTekst.\n"
+let fmRendered=Markdown.render(fmSource)
+check("front-matter herkend bij documentbegin",fmRendered.frontMatter?.source=="---\ntitle: Café 🌱\ndate: 2026-11-22\ntags: [test, ünicode]\ndraft: true\n---")
+check("front-matter body gescheiden",fmRendered.blocks.first?.source=="# Kop")
+check("front-matter entries geparse",fmRendered.frontMatter?.entries.contains { $0.0=="title" && $0.1=="Café 🌱" }==true && fmRendered.frontMatter?.entries.contains { $0.0=="tags" && $0.1=="[test, ünicode]" }==true)
+let fmNoClose="---\ntitle: x\n\n# Body zonder sluiting\n"
+check("ontbrekende sluiting → geen front-matter",Markdown.render(fmNoClose).frontMatter==nil && Markdown.render(fmNoClose).blocks.first?.source=="---")
+let fmNotFirst="Tekst vóór\n---\ntitle: x\n---\n"
+check("blok niet op documentbegin → genegeerd",Markdown.render(fmNotFirst).frontMatter==nil)
+let fmEmptyBody="---\ntitle: leeg\n---\n"
+let fmEmptyRendered=Markdown.render(fmEmptyBody)
+check("lege body na front-matter",fmEmptyRendered.frontMatter != nil && fmEmptyRendered.blocks.isEmpty)
+let fmBlockScalar="---\ndescription: |\n  Regel één\n  Regel twee\n---\n\nBody.\n"
+check("block scalar in front-matter",Markdown.render(fmBlockScalar).frontMatter?.entries.contains { $0.0=="description" && $0.1=="Regel één Regel twee" }==true)
+let fmList="---\ncategories:\n  - een\n  - twee\n---\n\nLijstbody.\n"
+check("lijst in front-matter",Markdown.render(fmList).frontMatter?.entries.contains { $0.0=="categories" && $0.1=="een twee" }==true)
+let fmCR="---\r\ntitle: crlf\r\n---\r\n\nBody CRLF.\n"
+// CRLF wordt door components(separatedBy:"\n") niet gesplitst op \r; de bron bevat \r\n,
+// dus "---\r" ≠ "---" en het blok wordt niet herkend. Dat is de gewenste conservatieve gedraging.
+check("CRLF-document: conservatief niet herkend",Markdown.render(fmCR).frontMatter==nil)
 if CommandLine.arguments.contains("--parser-only") { print("\(failures) failures");exit(failures==0 ? 0:1) }
 if CommandLine.arguments.contains("--askai") {
     var askAIFailures = 0

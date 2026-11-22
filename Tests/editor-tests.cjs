@@ -45,4 +45,20 @@ const savedNode=markeer.editor.firstElementChild;
 test('save location updates preserve editor DOM and Markdown',()=>{markeer.setBasePath('file:///new/');assert.equal(markeer.editor.firstElementChild,savedNode);assert.equal(document.querySelector('img').src,'file:///new/images/test.png');assert.equal(markeer.serialize(),'![](images/test.png) Caption\n');});
 markeer.setContent({blocks:[],references:''},9,'');markeer.editor.innerHTML='<ol start="3"><li>Eerste</li><li>Tweede</li></ol>';
 test('numbered list converts with correct starting number',()=>{assert.match(markeer.serialize(),/^3\.\s+Eerste\n4\.\s+Tweede\n$/);});
+
+// Front-matter (Jekyll): exact behouden bij body-editing; afwezig als bron het niet heeft.
+const fmSource='---\ntitle: Café 🌱\ndate: 2026-11-22\ntags: [test, ünicode]\ndraft: true\n---\n\n# Kop\n\nTekst.\n';
+const fmMatter={source:'---\ntitle: Café 🌱\ndate: 2026-11-22\ntags: [test, ünicode]\ndraft: true\n---'};
+markeer.setContent({blocks:[{id:0,html:'<h1>Kop</h1>',source:'# Kop'},{id:1,html:'<p>Tekst.</p>',source:'Tekst.'}],references:'',frontMatter:fmMatter},10,fmSource);
+test('front-matter exact behouden bij ongewijzigd document',()=>assert.equal(markeer.serialize(),fmSource));
+document.querySelector('h1').textContent='Gewijzigd';
+test('front-matter behouden bij kop-edit',()=>{const out=markeer.serialize();assert.ok(out.startsWith('---\ntitle: Café 🌱\n'));assert.ok(out.includes('# Gewijzigd'));assert.ok(out.includes('Tekst.'));});
+document.querySelector('p').textContent='Aangepast';
+test('front-matter + beide body-blokken',()=>{const out=markeer.serialize();assert.ok(out.startsWith('---\ntitle:'));assert.ok(out.includes('# Gewijzigd'));assert.ok(out.endsWith('Aangepast\n'));assert.ok(!out.includes('\n\n\n'));});
+markeer.setContent({blocks:[{id:0,html:'<p>Plain</p>',source:'Plain'}],references:''},11,'Plain\n');
+test('geen front-matter → geen prepend',()=>assert.equal(markeer.serialize(),'Plain\n'));
+markeer.editor.innerHTML='<p><br></p>';
+test('clear document na front-matter',()=>assert.equal(markeer.serialize(),''));
+
 console.log(count+' editor checks passed');
+

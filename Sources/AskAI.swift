@@ -23,7 +23,7 @@ final class AskAI {
             if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) { reachable = true }
             semaphore.signal()
         }.resume()
-        semaphore.wait(timeout: .now() + timeout)
+        _ = semaphore.wait(timeout: .now() + timeout)
         return reachable
     }
 
@@ -35,7 +35,7 @@ final class AskAI {
             if case .success = result { ok = true }
             semaphore.signal()
         }
-        semaphore.wait(timeout: .now() + 15)
+        _ = semaphore.wait(timeout: .now() + 15)
         return ok
     }
 
