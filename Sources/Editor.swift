@@ -6,10 +6,34 @@ final class WeakScriptHandler:NSObject,WKScriptMessageHandler {
     func userContentController(_ controller:WKUserContentController,didReceive message:WKScriptMessage) {owner?.userContentController(controller,didReceive:message)}
 }
 
+/// Bron-editor met Markdown-autocomplete. Intercepteert toetsenindiening vóór de
+/// standaard invoer en delegateert naar MarkdownEditing.completion. IME-compositie
+/// gaat via de normale route (we blokkeren niet tijdens composing).
+final class MarkdownTextView: NSTextView {
+    var autocompleteEnabled: Bool = true
+    override func keyDown(with event: NSEvent) {
+        guard autocompleteEnabled, !hasMarkedText() else { super.keyDown(with: event); return }
+        let isReturn = event.keyCode == 36 || event.keyCode == 76
+        let typed = isReturn ? "" : (event.charactersIgnoringModifiers ?? "")
+        let selection = self.selectedRange()
+        let text = self.string
+        let caret = selection.location + selection.length
+        if let c = MarkdownEditing.completion(beforeCaret: text, caret: caret, typed: typed, selection: selection, isReturn: isReturn) {
+            // Annuleer het standaard-getypte teken en pas het voorstel toe.
+            let range = c.replaceRange ?? NSRange(location: caret, length: 0)
+            self.replaceCharacters(in: range, with: c.insert)
+            let newCaret = range.location + c.caretOffset
+            self.setSelectedRange(NSRange(location: newCaret, length: 0))
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
 final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKScriptMessageHandler, WKNavigationDelegate, NSToolbarDelegate {
     weak var markdownDocument:MarkdownDocument?
     let messageProxy=WeakScriptHandler()
-    let textView=NSTextView()
+    let textView=MarkdownTextView()
     let scroll=NSScrollView()
     let split=NSSplitView()
     let status=NSTextField(labelWithString:"")
@@ -21,6 +45,11 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
     var revision=0
     var webDirty=true
     var renderWork:DispatchWorkItem?
+    static let autocompleteKey="Markeer.autocomplete.enabled"
+    var autocompleteEnabled:Bool {
+        get { UserDefaults.standard.object(forKey: Self.autocompleteKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: Self.autocompleteKey) }
+    }
 
     init(document:MarkdownDocument) {
         markdownDocument=document
@@ -67,6 +96,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         textView.textContainer?.containerSize=NSSize(width:500,height:CGFloat.greatestFiniteMagnitude)
         textView.maxSize=NSSize(width:CGFloat.greatestFiniteMagnitude,height:CGFloat.greatestFiniteMagnitude)
         textView.delegate=self
+        textView.autocompleteEnabled = autocompleteEnabled
         textView.setAccessibilityLabel("Markdown-editor")
         scroll.documentView=textView
         split.isVertical=true;split.dividerStyle = .thin

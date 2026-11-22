@@ -64,6 +64,47 @@ let fmCR="---\r\ntitle: crlf\r\n---\r\n\nBody CRLF.\n"
 // CRLF wordt door components(separatedBy:"\n") niet gesplitst op \r; de bron bevat \r\n,
 // dus "---\r" ≠ "---" en het blok wordt niet herkend. Dat is de gewenste conservatieve gedraging.
 check("CRLF-document: conservatief niet herkend",Markdown.render(fmCR).frontMatter==nil)
+
+// Autocomplete: lijstcontinuatie, delimiter-wrap, link-aanvulling.
+// listContinuation: de tekst bevat al het getypte \n (caret erachter); de
+// inhoudsregel vóór dat \n bepaalt de marker die op de nieuwe regel komt.
+let lc1=MarkdownEditing.listContinuation(beforeCaret:"- één\n",caret:6)
+check("lijstcontinuatie bullet",lc1?.insert=="- " && lc1?.caretOffset==2)
+let lc2=MarkdownEditing.listContinuation(beforeCaret:"  - ingesprongen\n",caret:17)
+check("lijstcontinuatie behoudt indent",lc2?.insert=="  - " && lc2?.caretOffset==4)
+let lc3=MarkdownEditing.listContinuation(beforeCaret:"2. tweede\n",caret:10)
+check("lijstcontinuatie genummerd",lc3?.insert=="2. " && lc3?.caretOffset==3)
+let lc4=MarkdownEditing.listContinuation(beforeCaret:"gewone regel\n",caret:14)
+check("lijstcontinuatie alleen op lijstregels",lc4==nil)
+let lc5=MarkdownEditing.listContinuation(beforeCaret:"",caret:0)
+check("lijstcontinuatie leeg document",lc5==nil)
+// Lijst stoppen: lege inhouds-item (alleen marker) levert géén nieuwe marker.
+let lc6=MarkdownEditing.listContinuation(beforeCaret:"- \n",caret:3)
+check("lijst stoppen op lege item",lc6==nil)
+// Unicode: marker vóór Unicode-tekst blijft intact.
+let lc7=MarkdownEditing.listContinuation(beforeCaret:"- café 🌱\n",caret:10)
+check("lijstcontinuatie Unicode",lc7?.insert=="- " && lc7?.caretOffset==2)
+// delimiterWrap met selectie: omklick de geselecteerde tekst.
+let dw1=MarkdownEditing.completion(beforeCaret:"vet",caret:0,typed:"*",selection:NSRange(location:0,length:3),isReturn:false)
+check("delimiter-wrap omklickt selectie",dw1?.insert=="*vet*" && dw1?.replaceRange==NSRange(location:0,length:3) && dw1?.caretOffset==5)
+let dw2=MarkdownEditing.completion(beforeCaret:"x",caret:1,typed:"*",selection:NSRange(location:1,length:0),isReturn:false)
+check("delimiter zonder selectie → niets (wordt gewoon getypt)",dw2==nil)
+// Delimiter-wrap met meerdere delimiters (vet, code, strike).
+let dw4=MarkdownEditing.completion(beforeCaret:"code",caret:0,typed:"`",selection:NSRange(location:0,length:4),isReturn:false)
+check("code-wrap omklickt selectie",dw4?.insert=="`code`" && dw4?.replaceRange==NSRange(location:0,length:4))
+let dw5=MarkdownEditing.completion(beforeCaret:"w",caret:0,typed:"a",selection:NSRange(location:0,length:1),isReturn:false)
+check("niet-delimiter letter → geen wrap",dw5==nil)
+// Link-aanvulling: "](" → https://
+let lk1=MarkdownEditing.completion(beforeCaret:"[tekst](",caret:8,typed:"(",selection:NSRange(location:8,length:0),isReturn:false)
+check("link-aanvulling na ])",lk1?.insert=="https://" && lk1?.caretOffset==8)
+let lk2=MarkdownEditing.completion(beforeCaret:"[tekst]",caret:7,typed:"]",selection:NSRange(location:7,length:0),isReturn:false)
+check("geen link-aanvulling zonder (",lk2==nil)
+// Enter op gewone tekst: geen voorstel (standaard ingesteld).
+let en1=MarkdownEditing.completion(beforeCaret:"Regel\n",caret:5,typed:"",selection:NSRange(location:5,length:0),isReturn:true)
+check("Enter op gewone tekst → niets",en1==nil)
+// Gewone tekst zonder onverwachte transformaties: een willekeurige letter geeft niets.
+let nt=MarkdownEditing.completion(beforeCaret:"hallo ",caret:6,typed:"w",selection:NSRange(location:6,length:0),isReturn:false)
+check("gewone letter → geen voorstel",nt==nil)
 if CommandLine.arguments.contains("--parser-only") { print("\(failures) failures");exit(failures==0 ? 0:1) }
 if CommandLine.arguments.contains("--askai") {
     var askAIFailures = 0

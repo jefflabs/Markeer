@@ -20,6 +20,12 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
     @objc func numberedList(_ sender:Any?) {editor?.numberedList()}
     @objc func link(_ sender:Any?) {editor?.link()}
     @objc func exportPDF(_ sender:Any?) {editor?.exportPDF()}
+    @objc func toggleAutocomplete(_ sender:NSMenuItem) {
+        guard let editor=editor else {return}
+        editor.autocompleteEnabled.toggle()
+        editor.textView.autocompleteEnabled=editor.autocompleteEnabled
+        sender.state=editor.autocompleteEnabled ? .on : .off
+    }
     @objc func about(_ sender:Any?) {
         NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Markeer",.applicationVersion:"1.0.2",.credits:NSAttributedString(string:"Een rustige plek voor Markdown.\nNative macOS · lokale bestanden · drie weergaven\n\nGebouwd voor Jeffrey.")])
     }
@@ -83,6 +89,9 @@ view.addItem(.separator())
 item(view,"Markdown",#selector(AppDelegate.source(_:)),"1",.command,delegate)
 item(view,"Opgemaakt",#selector(AppDelegate.rich(_:)),"2",.command,delegate)
 item(view,"Naast elkaar",#selector(AppDelegate.split(_:)),"3",.command,delegate)
+view.addItem(.separator())
+let autoItem=item(view,"Markdown-autocomplete",#selector(AppDelegate.toggleAutocomplete(_:)),"",.command,delegate)
+autoItem.state=UserDefaults.standard.object(forKey:"Markeer.autocomplete.enabled") as? Bool ?? true ? .on : .off
 view.addItem(.separator())
 item(view,"Volledig scherm",#selector(NSWindow.toggleFullScreen(_:)),"f",[.command,.control])
 let windows=menu("Venster");app.windowsMenu=windows

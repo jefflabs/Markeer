@@ -154,6 +154,7 @@ struct NumberedListEdit {
 }
 
 enum MarkdownEditing {
+    @discardableResult
     static func numberedList(in text: String, selection: NSRange) -> NumberedListEdit {
         let source = text as NSString
         let location = min(selection.location, source.length)
@@ -175,5 +176,90 @@ enum MarkdownEditing {
             return indent + "\(number). " + clean.dropFirst(indent.count)
         }.joined(separator: "\n")
         return .init(range: range, text: numbered + (trailingNewline ? "\n" : ""))
+    }
+
+    // MARK: - Autocomplete (Markdown-delimiters, links, lijstcontinuatie)
+    //
+    // Deze pure functies geven terug welke invoer bij een gegeven caret/punt
+    // moet worden toegevoegd. De editor (NSTextView) past de uitkomst toe;
+    // zo blijven selectie, caretpositie, Unicode en IME.testbaar zonder UI.
+
+    /// Resultaat van een autocomplete-voorstel.
+    struct Completion {
+        /// Tekst die wordt ingevoegd (of vervangen binnen `replaceRange`).
+        let insert: String
+        /// Optioneel: bestaand bereik dat door `insert` wordt vervangen.
+        var replaceRange: NSRange? = nil
+        /// Caret-offset RELATIEF aan het begin van `insert` na invoeging.
+        let caretOffset: Int
+    }
+
+    static let newlineCharacter: Character = "\n"
+
+    /// Lijstcontinuatie: bij Enter op een niet-lege lijstregel voorspelt de
+    /// volgende regel dezelfde marker (zelfde indent en stijl). Een lege
+    /// lijstregel ("- " zonder inhoud) levert géén nieuwe marker op — dat
+    /// stopt de lijst (standaard gedrag).
+    static func listContinuation(beforeCaret text: String, caret: Int) -> Completion? {
+        let src = text as NSString
+        let caret = min(caret, src.length)
+        // Het getypte Enter is het teken op positie caret-1; de inhoudsregel eindigt daar.
+        guard caret > 0, src.character(at: caret - 1) == 10 else { return nil }
+        let lineRange = src.lineRange(for: NSRange(location: caret - 1, length: 0))
+        // contentLine = de regel vóór het getypte \n (dus zonder dat \n).
+        let contentLine = src.substring(with: NSRange(location: lineRange.location, length: lineRange.length - 1))
+        guard !contentLine.isEmpty else { return nil }
+        guard let m = contentLine.range(of: #"^([ \t]*)([-+*][ \t]+|[0-9]+[.)][ \t]+)"#, options: .regularExpression) else { return nil }
+        let whole = String(contentLine[m])
+        let indent = whole.prefix(while: { $0 == " " || $0 == "\t" })
+        let marker = String(whole.dropFirst(indent.count))
+        // Een lege lijst-item (alleen marker + eventueel witruimte, geen inhoud) stopt de lijst.
+        let afterMarker = contentLine.dropFirst(whole.count)
+        guard !afterMarker.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return Completion(insert: String(indent) + marker, caretOffset: (indent + marker).count)
+    }
+
+    /// Delimiter-aanvulling: als de gebruiker een delimiter-tekentype typt terwijl
+    /// er tekst geselecteerd is (bv. ** over "vet"), wordt de selectie omklikt:
+    /// **vet** met de selectie op "vet". Zonder selectie wordt de cursor na het
+    /// gesloten paar geplaatst (bv. **|). Weerspiegelt MacDown's inline-formatting.
+    /// `selection` is het huidige selectiebereik VÓÓR het getypte teken.
+    static func delimiterWrap(beforeCaret text: String, caret: Int, typed: String, selection: NSRange) -> Completion? {
+        let src = text as NSString
+        let caret = min(caret, src.length)
+        let sel = selection
+        let delims = ["**", "*", "_", "`", "~~"]
+        guard delims.contains(typed) else { return nil }
+        if sel.length > 0 {
+            // Omklik de geselecteerde tekst met het delimiterpaar.
+            let inner = src.substring(with: sel)
+            let insert = typed + inner + typed
+            return Completion(insert: insert, replaceRange: sel, caretOffset: insert.count)
+        }
+        // Zonder selectie doen we niets: het delimiter wordt gewoon getypt.
+        // (De 'caret tussen een bestaand paar' case is ambiguous met de
+        //  standaard toetsenindiening en kan onverwachte transformaties geven.)
+        return nil
+    }
+
+    /// Link-aanvulling: nadat de gebruiker "](" typt direct na een "]", voeg
+    /// "https://" in en selecteer die, of plaats de caret erin. Weerspiegelt
+    /// MacDown's link-autocomplete.
+    static func linkCompletion(beforeCaret text: String, caret: Int) -> Completion? {
+        let src = text as NSString
+        let caret = min(caret, src.length)
+        guard caret >= 2 else { return nil }
+        let last2 = src.substring(with: NSRange(location: caret - 2, length: 2))
+        guard last2 == "](" else { return nil }
+        return Completion(insert: "https://", caretOffset: 8)
+    }
+
+    /// Combineert de bovenstaande voorstellen voor één toetsenindiening.
+    /// `typed` is de letter/teken dat net is getypt; `isReturn` markeert Enter.
+    static func completion(beforeCaret text: String, caret: Int, typed: String, selection: NSRange, isReturn: Bool) -> Completion? {
+        if isReturn { return listContinuation(beforeCaret: text, caret: caret) }
+        if let c = linkCompletion(beforeCaret: text, caret: caret) { return c }
+        if let c = delimiterWrap(beforeCaret: text, caret: caret, typed: typed, selection: selection) { return c }
+        return nil
     }
 }
