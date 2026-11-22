@@ -163,6 +163,35 @@ check("DE heeft volledige pariteit (geen EN-fallback nodig)", L10n.string("menu.
 // verwijderde key via de publieke bundle-access.
 let deHasKey = L10n.bundle(for: "de")?["editor.source.label"] != nil
 check("DE bundle is toegankelijk", deHasKey == true)
+
+// Volledigheidscheck (acceptatie #1837): elke ondersteunde taal heeft EXACT de
+// zelfde key-set als het autoritaire Engels, en geen enkele vertaling is leeg.
+// Dit vangt ontbrekende keys en lege waarden in ELKE taal automatisch op.
+let enKeySet = Set(L10n.en.keys)
+var parityOK = true
+var emptyFound = false
+for lang in L10n.supported {
+    guard let bundle = L10n.bundle(for: lang.code) else { parityOK = false; continue }
+    let keySet = Set(bundle.keys)
+    if keySet != enKeySet { parityOK = false }
+    for (k, v) in bundle where v.trimmingCharacters(in: .whitespaces).isEmpty { emptyFound = true }
+}
+check("vertaalpariteit: alle 6 talen hebben exact de EN-keyset", parityOK)
+check("geen lege vertalingen in enige taal", !emptyFound)
+// Systeemtaalkeuze + fallback doorlopen (acceptatie): elke ondersteunde code
+// lost op zichzelf, een onbekende taal lost op EN.
+var resolveOK = true
+for lang in L10n.supported { if L10n.resolveLanguage(fromPreferences: [lang.code + "-XX"]) != lang.code { resolveOK = false } }
+resolveOK = resolveOK && L10n.resolveLanguage(fromPreferences: ["zh-Hans", "ar-AE"]) == "en"
+check("systeemtaalkeuze + Engelse fallback", resolveOK)
+// Plurals: pagina/pagina's (NL) en page/pages (EN) kiezen de juiste vorm.
+L10n.overrideLanguage = "nl"
+check("plural NL 1 → pagina", L10n.string("pdf.status.pages", 1) == "1 pagina")
+check("plural NL 3 → pagina's", L10n.string("pdf.status.pages.plural", 3) == "3 pagina's")
+L10n.overrideLanguage = "en"
+check("plural EN 1 → page", L10n.string("pdf.status.pages", 1) == "1 page")
+check("plural EN 5 → pages", L10n.string("pdf.status.pages.plural", 5) == "5 pages")
+L10n.overrideLanguage = nil
 // Ontbrekende key in alle talen → de key zelf (voorspelbare fallback).
 check("onbekende key → key zelf", L10n.string("niet.bestaande.key") == "niet.bestaande.key")
 // Gebruikersinhoud/Markdown wordt NIET vertaald: de renderer raakt L10n niet aan.

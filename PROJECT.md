@@ -18,6 +18,17 @@ Native settings: a Settings window (Weergave ▸ Instellingen…, ⌘,) edits pe
 
 Localization: all user-facing UI strings (menus, toolbar, tooltips, accessibility labels, status bar incl. plurals, the link dialog, errors and the About panel) come from a central `L10n` layer with in-process, offline bundles for NL (default/kept), EN, DE, FR, IT and ES. The macOS system language is followed; unsupported languages fall back to English, and missing keys fall back predictably (current language → English → the key itself). Source Markdown and user content are never translated (the renderer is language-agnostic). Language resolution, fallback and translation are pure and unit-tested.
 
+### Maintaining new labels and translations (workflow)
+
+1. **Author the key in English first.** `L10n.en` is the authoritative vocabulary: add the new key there with a `String(format:)`-compatible template (`%@` for text, `%lld`/`%d` for numbers — used for plurals).
+2. **Translate into every supported language** (`nl`, `de`, `fr`, `it`, `es`). Every language must contain exactly the same key set as English — this is enforced automatically.
+3. **Use the key in code** via `L10n.string("key")` or `L10n.string("key", arg1, arg2)`. Never hard-code user-facing text in Swift or the bundled editor HTML/JS.
+4. **Plurals**: keep the singular and plural forms as separate keys (e.g. `pdf.status.pages` / `pdf.status.pages.plural`) and pick at the call site; do not try to derive plurals from the template.
+5. **Accessibility and keyboard**: set `setAccessibilityLabel(L10n.string(...))` on controls and keep existing key equivalents — a new label must not break VoiceOver or keyboard navigation.
+6. **Run the suite.** `Tests/run.sh` includes an automatic completeness check that fails if any language's key set differs from English's or if any translation is empty, plus per-language resolution, fallback, plural and never-translate-content checks. This is the gate that keeps all six languages in parity.
+
+Test documents are saved and reopened without translation or Markdown corruption because the renderer is language-agnostic; only the surrounding UI chrome is localized.
+
 A Jekyll YAML front-matter block at the very start of a document is recognized (conservatively: exact `---` on line one, exact closing `---`, no leading blank line) and excluded from Markdown rendering. The block's source text is carried verbatim through the render payload and the formatted editor prepends it unchanged on serialize, so rich edits to the body never alter the front matter. The status bar shows a short metadata preview (first entries) when present.
 
 Saving updates relative image URLs without replacing the editor DOM. This preserves WebKit's undo history across the initial save and subsequent saves.
