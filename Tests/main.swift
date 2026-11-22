@@ -123,6 +123,22 @@ check("highlight niet in inline code",hlInline.blocks.first?.html.contains("<cod
 // Geen == in een gewone regel → ongewijzigd.
 let hlNone=Markdown.render("Geen highlight hier.\n")
 check("gewone tekst ongewijzigd zonder ==",hlNone.blocks.first?.html=="<p>Geen highlight hier.</p>\n")
+
+// Preferences: defaults en persistentie (zonder UI).
+let freshDefaults = Preferences.default.autocompleteEnabled == true
+    && Preferences.default.codeHighlightingEnabled == true
+    && Preferences.default.showFrontMatter == true
+    && Preferences.default.showStatusBar == true
+check("Preferences defaults zijn allemaal aan", freshDefaults)
+var mutated = Preferences.default
+mutated.autocompleteEnabled = false
+mutated.showStatusBar = false
+mutated.save()
+let reloaded = Preferences.load()
+check("Preferences persistentie (na save + load)", reloaded.autocompleteEnabled == false && reloaded.showStatusBar == false && reloaded.codeHighlightingEnabled == true && reloaded.showFrontMatter == true)
+// Herstel defaults zodat overige tests niet worden beïnvloed.
+Preferences.default.save()
+check("Preferences herstel naar defaults", Preferences.load() == Preferences.default)
 if CommandLine.arguments.contains("--parser-only") { print("\(failures) failures");exit(failures==0 ? 0:1) }
 if CommandLine.arguments.contains("--askai") {
     var askAIFailures = 0

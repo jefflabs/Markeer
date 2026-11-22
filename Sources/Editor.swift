@@ -47,8 +47,16 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
     var renderWork:DispatchWorkItem?
     static let autocompleteKey="Markeer.autocomplete.enabled"
     var autocompleteEnabled:Bool {
-        get { UserDefaults.standard.object(forKey: Self.autocompleteKey) as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: Self.autocompleteKey) }
+        get { Preferences.load().autocompleteEnabled }
+        set { var p=Preferences.load(); p.autocompleteEnabled=newValue; p.save() }
+    }
+    /// Pas de actuele voorkeuren toe op dit venster zonder het document als
+    /// gewijzigd te markeren of het bronbestand te wijzigen.
+    func applyPreferences(_ p: Preferences) {
+        textView.autocompleteEnabled = p.autocompleteEnabled
+        status.isHidden = !p.showStatusBar
+        // frontMatter-preview wordt in updateStatus gelezen uit Preferences.
+        updateStatus()
     }
 
     init(document:MarkdownDocument) {
@@ -96,7 +104,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         textView.textContainer?.containerSize=NSSize(width:500,height:CGFloat.greatestFiniteMagnitude)
         textView.maxSize=NSSize(width:CGFloat.greatestFiniteMagnitude,height:CGFloat.greatestFiniteMagnitude)
         textView.delegate=self
-        textView.autocompleteEnabled = autocompleteEnabled
+        textView.autocompleteEnabled = Preferences.load().autocompleteEnabled
         textView.setAccessibilityLabel("Markdown-editor")
         scroll.documentView=textView
         split.isVertical=true;split.dividerStyle = .thin
@@ -192,7 +200,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         let chars=content.count
         let hint=mode==0 ? "Markdown" : mode==1 ? "Opgemaakt · direct bewerkbaar" : "Naast elkaar · beide bewerkbaar"
         var statusText="\(words) woorden   ·   \(chars) tekens   ·   UTF-8   ·   \(hint)"
-        if let fm=Markdown.extractFrontMatter(content)?.matter, !fm.entries.isEmpty {
+        if Preferences.load().showFrontMatter, let fm=Markdown.extractFrontMatter(content)?.matter, !fm.entries.isEmpty {
             let preview=fm.entries.prefix(3).map{"\($0.0): \($0.1)"}.joined(separator: " · ")
             statusText+="   ·   \(preview)"
         }
