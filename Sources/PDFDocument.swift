@@ -106,11 +106,14 @@ final class PDFWindowController: NSWindowController {
         sidebarList.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for i in 0..<pdf.pageCount {
             let page = pdf.page(at: i)
-            let button = NSButton(image: thumbnailImage(for: page) ?? NSImage(), target: self, action: #selector(gotoPage(_:)))
+            let thumb = thumbnailImage(for: page)
+            let bounds = page?.bounds(for: .mediaBox) ?? .zero
+            let scale = bounds.width > 0 ? 160 / bounds.width : 1
+            let button = NSButton(image: thumb ?? NSImage(), target: self, action: #selector(gotoPage(_:)))
             button.tag = i
             button.isBordered = false
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.setFrameSize(NSSize(width: 160, height: 210))
+            button.setFrameSize(NSSize(width: 160, height: max(1, bounds.height * scale)))
             sidebarList.addArrangedSubview(button)
         }
         status.stringValue = "\(pdf.pageCount) pagina\(pdf.pageCount == 1 ? "" : "s")   ·   PDF"
@@ -119,22 +122,9 @@ final class PDFWindowController: NSWindowController {
     func thumbnailImage(for page: PDFPage?) -> NSImage? {
         guard let page = page else { return nil }
         let bounds = page.bounds(for: .mediaBox)
-        let scale: CGFloat = 0.45
-        let size = NSSize(width: bounds.width * scale, height: bounds.height * scale)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        NSGraphicsContext.current?.imageInterpolation = .high
-        NSColor.white.setFill()
-        NSRect(origin: .zero, size: size).fill()
-        if let cgContext = NSGraphicsContext.current?.cgContext {
-            cgContext.saveGState()
-            cgContext.scaleBy(x: scale, y: scale)
-            cgContext.translateBy(x: 0, y: bounds.height)
-            page.draw(with: .mediaBox, to: cgContext)
-            cgContext.restoreGState()
-        }
-        image.unlockFocus()
-        return image
+        let scale: CGFloat = 160 / bounds.width
+        let targetSize = NSSize(width: 160, height: bounds.height * scale)
+        return page.thumbnail(of: targetSize, for: .mediaBox)
     }
 
     @objc func gotoPage(_ sender: NSButton) {
