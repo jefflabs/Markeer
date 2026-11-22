@@ -43,6 +43,28 @@ try! document.read(from:utf16,ofType:"net.markeer.markdown")
 check("document UTF-16 import",document.content=="# UTF16\n")
 do { try document.read(from:Data([0xff,0xff,0xff]),ofType:"net.markeer.markdown");check("invalid encoding rejected",false) } catch {check("invalid encoding rejected",true)}
 if CommandLine.arguments.contains("--parser-only") { print("\(failures) failures");exit(failures==0 ? 0:1) }
+if CommandLine.arguments.contains("--askai") {
+    var askAIFailures = 0
+    func askAIcheck(_ name: String, _ condition: @autoclosure () -> Bool) {
+        if condition() { print("PASS \(name)") } else { askAIFailures += 1; print("FAIL \(name)") }
+    }
+    func askAI(_ prompt: String, _ model: String, timeout: Double) -> String? {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: String? = nil
+        AskAI.shared.ask(prompt: prompt, context: "Testdocument.", model: model) { outcome in
+            if case .success(let text) = outcome { result = text }
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + timeout) == .timedOut { return nil }
+        return result
+    }
+    let answer = askAI("Antwoord exact met: OK", "llama3.2:1b", timeout: 60)
+    askAIcheck("AskAI returns text", answer?.isEmpty == false)
+    let unreachable = AskAI(baseURL: URL(string: "http://localhost:59999/api/chat")!).askBlocking(prompt: "x", context: "y", model: "llama3.2:1b")
+    askAIcheck("AskAI reports connection error", unreachable == false)
+    print("\(askAIFailures) failures")
+    exit(askAIFailures == 0 ? 0 : 1)
+}
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let configuration=WKWebViewConfiguration();configuration.websiteDataStore = .nonPersistent()

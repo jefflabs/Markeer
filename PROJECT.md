@@ -4,6 +4,8 @@
 
 A native macOS document application. `MarkdownDocument` owns UTF-8 text and uses `NSDocument` for opening, saving and autosave. `EditorWindowController` combines a plain `NSTextView` source editor with an editable `WKWebView`.
 
+`MarkeerPDFDocument` opens PDF files in a three-panel window: page thumbnails, PDFKit view, and an Ask AI panel. The Ask AI panel asks a local Ollama model (default `llama3.2:1b`, `http://localhost:11434`) about the document; the context is the current page's text (falling back to the whole document), truncated to 12000 characters. All requests stay on the local network; when Ollama is unreachable the app shows a Dutch error in the panel.
+
 The source text is rendered with vendored cmark-gfm. Rendered blocks retain their original Markdown. The formatted editor converts changed blocks back through Turndown and preserves untouched blocks and reference definitions. Revision identifiers prevent stale editor messages from replacing more recent source edits.
 
 Saving updates relative image URLs without replacing the editor DOM. This preserves WebKit's undo history across the initial save and subsequent saves.
@@ -21,7 +23,7 @@ The numbered-list toolbar action uses `insertOrderedList` in the formatted edito
 
 ## Verification
 
-The automated suite covers rendering, document encodings, source-mode numbered-list edits, formatted text conversion, preservation of existing blocks, table and checkbox edits, relative images, safe code fences, and native bridge messages.
+The automated suite covers rendering, document encodings, source-mode numbered-list edits, formatted text conversion, preservation of existing blocks, table and checkbox edits, relative images, safe code fences, and native bridge messages. The AskAI suite (a live round-trip against local Ollama plus a connection-error check) runs when Ollama is reachable and is skipped otherwise.
 
 Native window checks cover source/formatted/split views, formatting, undo, tasks, table edits, save/reopen, undo after saving, and the numbered-list button in both editors. The macOS unified log is unavailable inside the command sandbox, so a complete app-log review is not claimed. The legacy optional headless WebKit checks are separate from the passing Swift and DOM suites.
 

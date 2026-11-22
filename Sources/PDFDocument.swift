@@ -25,13 +25,28 @@ final class MarkeerPDFDocument: NSDocument {
     }
 }
 
+final class PromptField: NSTextField {
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 76 { // return or enter
+            sendAction(on: .keyDown)
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+}
+
 final class PDFWindowController: NSWindowController, NSToolbarDelegate {
     weak var pdfDocument: MarkeerPDFDocument?
     let sidebar = NSScrollView()
     let sidebarList = NSStackView()
     let pdfView = PDFView()
-    let aiPlaceholder = NSTextField(labelWithString: "")
+    let aiPanel = NSView()
+    let aiPrompt = NSTextField(labelWithString: "")
+    let aiSend = NSButton(title: "Vraag", target: self, action: #selector(askAI))
+    let aiResponse = NSTextView()
+    private var aiInput: NSTextField!
     let status = NSTextField(labelWithString: "")
+    private var aiBusy = false
 
     init(document: MarkeerPDFDocument) {
         pdfDocument = document
@@ -86,15 +101,40 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
         // Center: PDF view
         pdfView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Right: AI placeholder (later)
-        aiPlaceholder.isEditable = false; aiPlaceholder.isSelectable = false
-        aiPlaceholder.alignment = .center
-        aiPlaceholder.textColor = .secondaryLabelColor
-        aiPlaceholder.font = .systemFont(ofSize: 13)
-        aiPlaceholder.stringValue = "Ask AI — later"
-        aiPlaceholder.translatesAutoresizingMaskIntoConstraints = false
+        // Right: AI panel (local model via Ollama)
+        let aiInput = PromptField()
+        aiInput.placeholderString = "Vraag over dit document…"
+        aiInput.target = self
+        aiInput.action = #selector(askAI)
+        aiInput.translatesAutoresizingMaskIntoConstraints = false
+        aiSend.translatesAutoresizingMaskIntoConstraints = false
+        aiSend.target = self
+        aiSend.action = #selector(askAI)
+        let aiResponseScroll = NSScrollView()
+        aiResponseScroll.hasVerticalScroller = true
+        aiResponseScroll.borderType = .noBorder
+        aiResponseScroll.translatesAutoresizingMaskIntoConstraints = false
+        aiResponse.isEditable = false
+        aiResponse.isSelectable = true
+        aiResponse.drawsBackground = false
+        aiResponse.textContainerInset = NSSize(width: 0, height: 8)
+        aiResponseScroll.documentView = aiResponse
+        aiPanel.addSubview(aiInput); aiPanel.addSubview(aiSend); aiPanel.addSubview(aiResponseScroll)
+        aiPanel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            aiInput.topAnchor.constraint(equalTo: aiPanel.topAnchor, constant: 12),
+            aiInput.leadingAnchor.constraint(equalTo: aiPanel.leadingAnchor, constant: 12),
+            aiInput.trailingAnchor.constraint(equalTo: aiSend.leadingAnchor, constant: -6),
+            aiSend.topAnchor.constraint(equalTo: aiPanel.topAnchor, constant: 10),
+            aiSend.trailingAnchor.constraint(equalTo: aiPanel.trailingAnchor, constant: -12),
+            aiResponseScroll.topAnchor.constraint(equalTo: aiInput.bottomAnchor, constant: 12),
+            aiResponseScroll.leadingAnchor.constraint(equalTo: aiPanel.leadingAnchor, constant: 12),
+            aiResponseScroll.trailingAnchor.constraint(equalTo: aiPanel.trailingAnchor, constant: -12),
+            aiResponseScroll.bottomAnchor.constraint(equalTo: aiPanel.bottomAnchor, constant: -12)
+        ])
+        self.aiInput = aiInput
 
-        split.addArrangedSubview(sidebar); split.addArrangedSubview(pdfView); split.addArrangedSubview(aiPlaceholder)
+        split.addArrangedSubview(sidebar); split.addArrangedSubview(pdfView); split.addArrangedSubview(aiPanel)
         split.setPosition(200, ofDividerAt: 0)
         split.setPosition(640, ofDividerAt: 1)
         pdfView.document = pdfDocument?.pdf
@@ -186,5 +226,32 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
     @objc func gotoPage(_ sender: NSButton) {
         guard let pdf = pdfDocument?.pdf, let page = pdf.page(at: sender.tag) else { return }
         pdfView.go(to: page)
+    }
+
+    @objc func askAI() {
+        let prompt = aiInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !aiBusy, !prompt.isEmpty else { return }
+        let currentText = pdfView.currentPage?.string ?? ""
+        let context = (currentText.isEmpty ? (pdfDocument?.pdf?.string ?? "") : currentText).prefix(12000)
+        aiInput.stringValue = ""
+        aiBusy = true
+        aiSend.isEnabled = false
+        appendAIText("\n\n> \(prompt)\n\n_Laden…_")
+        AskAI.shared.ask(prompt: prompt, context: String(context)) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.aiBusy = false
+                self.aiSend.isEnabled = true
+                switch result {
+                case .success(let text): self.appendAIText(text)
+                case .failure(let error): self.appendAIText("_(fout: \(error.localizedDescription))_")
+                }
+            }
+        }
+    }
+
+    private func appendAIText(_ text: String) {
+        aiResponse.textStorage?.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 12)]))
+        aiResponse.scrollToEndOfDocument(nil)
     }
 }
