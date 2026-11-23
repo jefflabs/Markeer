@@ -1,6 +1,25 @@
 import AppKit
 import PDFKit
 
+/// Highlight-annotatie opbouwen uit selectie-rects (page-gebruikerscoördinaten).
+/// Zuiver en unit-testbaar: QuadPoints (8 punten per quad) bepalen het gemarkeerde
+/// gebied, zodat de annotatie nooit groter wordt dan de geselecteerde tekst.
+enum PDFHighlight {
+    static func quadPoints(_ rects: [CGRect]) -> [CGFloat] {
+        rects.flatMap { [$0.origin.x, $0.origin.y, $0.maxX, $0.origin.y, $0.maxX, $0.maxY, $0.origin.x, $0.maxY] }
+    }
+    static func annotation(forRects rects: [CGRect]) -> PDFAnnotation {
+        // bounds = unie van de rects: renderers cullen annotaties op /Rect, dus een
+        // lege bounds laat de highlight onzichtbaar. QuadPoints bepalen de exacte vorm.
+        let union = rects.reduce(CGRect.null) { $0.union($1) }
+        let annotation = PDFAnnotation(bounds: union, forType: .highlight, withProperties: [
+            PDFAnnotationKey.color: NSColor.yellow
+        ])
+        annotation.setValue(quadPoints(rects), forAnnotationKey: PDFAnnotationKey.quadPoints)
+        return annotation
+    }
+}
+
 @objc(MarkeerPDFDocument)
 final class MarkeerPDFDocument: NSDocument {
     var pdf: PDFKit.PDFDocument? { didSet { documentChanged() } }
@@ -90,16 +109,31 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
         sidebarList.spacing = 12; sidebarList.edgeInsets = NSEdgeInsets(top: 12, left: 8, bottom: 12, right: 8)
         sidebarList.translatesAutoresizingMaskIntoConstraints = false
         let sidebarContent = NSView()
+        sidebarContent.translatesAutoresizingMaskIntoConstraints = false
         sidebarContent.addSubview(sidebarList)
+        notesList.orientation = .vertical
+        notesList.alignment = .leading
+        notesList.spacing = 4
+        notesList.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        notesList.translatesAutoresizingMaskIntoConstraints = false
+        sidebarContent.addSubview(notesList)
         NSLayoutConstraint.activate([
             sidebarList.topAnchor.constraint(equalTo: sidebarContent.topAnchor), sidebarList.leadingAnchor.constraint(equalTo: sidebarContent.leadingAnchor),
-            sidebarList.trailingAnchor.constraint(equalTo: sidebarContent.trailingAnchor), sidebarList.bottomAnchor.constraint(equalTo: sidebarContent.bottomAnchor)
+            sidebarList.trailingAnchor.constraint(equalTo: sidebarContent.trailingAnchor),
+            notesList.topAnchor.constraint(equalTo: sidebarList.bottomAnchor, constant: 8),
+            notesList.leadingAnchor.constraint(equalTo: sidebarContent.leadingAnchor),
+            notesList.trailingAnchor.constraint(equalTo: sidebarContent.trailingAnchor),
+            notesList.bottomAnchor.constraint(lessThanOrEqualTo: sidebarContent.bottomAnchor)
         ])
         sidebar.documentView = sidebarContent
-        sidebar.translatesAutoresizingMaskIntoConstraints = false
-
-        // Center: PDF view
-        pdfView.translatesAutoresizingMaskIntoConstraints = false
+        // Auto-Layout documentView: breedte volgt de scroll-view, hoogte volgt de
+        // inhoud (thumbnails + notitie-lijst). Zonder deze koppeling blijft de
+        // content 0×0 en de thumbnails/onoverzicht 0-breed.
+        NSLayoutConstraint.activate([
+            sidebarContent.topAnchor.constraint(equalTo: sidebar.contentView.topAnchor),
+            sidebarContent.leadingAnchor.constraint(equalTo: sidebar.contentView.leadingAnchor),
+            sidebarContent.trailingAnchor.constraint(equalTo: sidebar.contentView.trailingAnchor)
+        ])
 
         // Right: AI panel (local model via Ollama)
         let aiInput = PromptField()
@@ -120,7 +154,6 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
         aiResponse.textContainerInset = NSSize(width: 0, height: 8)
         aiResponseScroll.documentView = aiResponse
         aiPanel.addSubview(aiInput); aiPanel.addSubview(aiSend); aiPanel.addSubview(aiResponseScroll)
-        aiPanel.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             aiInput.topAnchor.constraint(equalTo: aiPanel.topAnchor, constant: 12),
             aiInput.leadingAnchor.constraint(equalTo: aiPanel.leadingAnchor, constant: 12),
@@ -134,7 +167,16 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
         ])
         self.aiInput = aiInput
 
+        // Klassieke split-view: de paneel-frames worden door de split-view zelf
+        // gestuurd. De panelen moeten daarom géén Auto-Layout-views zijn
+        // (translatesAutoresizingMaskIntoConstraints = true), anders rekent de
+        // constraint-engine hun frames uit als 0×0 (geen width/height-constraints)
+        // en worden de panelen onzichtbaar.
         split.addArrangedSubview(sidebar); split.addArrangedSubview(pdfView); split.addArrangedSubview(aiPanel)
+        // Eerst de constraints uitrekenen zodat de split-view zijn echte frame heeft;
+        // anders worden de divider-posities op een 0×0-frame geklemd en blijft de
+        // sidebar (thumbnails en notities) onzichtbaar (0 breed).
+        root.layoutSubtreeIfNeeded()
         split.setPosition(200, ofDividerAt: 0)
         split.setPosition(640, ofDividerAt: 1)
         pdfView.document = pdfDocument?.pdf
@@ -143,7 +185,8 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(toolbar) }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [NSToolbarItem.Identifier("addNote"), NSToolbarItem.Identifier("deleteNote")]
+        [NSToolbarItem.Identifier("addNote"), NSToolbarItem.Identifier("deleteNote"),
+         NSToolbarItem.Identifier("highlight")]
     }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: identifier)
@@ -155,8 +198,39 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
             item.label = "Verwijder aantekening"; item.toolTip = "Verwijder aantekening"
             item.image = NSImage(systemSymbolName: "note.text.badge.minus", accessibilityDescription: "Verwijder aantekening")
             item.target = self; item.action = #selector(deleteSelectedNote)
+        } else if identifier.rawValue == "highlight" {
+            item.label = "Markeer"; item.toolTip = "Markeer geselecteerde tekst"
+            item.image = NSImage(systemSymbolName: "highlighter", accessibilityDescription: "Markeer tekst")
+            item.target = self; item.action = #selector(addHighlight)
         }
         return item
+    }
+
+    /// Maakt een highlight-annotatie voor de geselecteerde tekst op deze pagina.
+    /// De selectie wordt per regel omgezet in page-space rects (QuadPoints), zodat
+    /// alleen de geselecteerde tekst gemarkeerd wordt. Zonder selectie (of zonder
+    /// dektekt op de pagina) is het resultaat nil: de toolbar-knop is dan een no-op.
+    func highlight(selection: PDFSelection?, on page: PDFPage) -> PDFAnnotation? {
+        guard let selection, selection.pages.contains(page) else { return nil }
+        var rects: [CGRect] = []
+        for line in selection.selectionsByLine() where line.pages.contains(page) {
+            let rect = line.bounds(for: page)
+            if !rect.isNull, !rect.isEmpty { rects.append(rect) }
+        }
+        guard !rects.isEmpty else { return nil }
+        return PDFHighlight.annotation(forRects: rects)
+    }
+
+    @objc func addHighlight() {
+        guard let selection = pdfView.currentSelection else { return }
+        var added = false
+        for page in selection.pages {
+            guard let annotation = highlight(selection: selection, on: page) else { continue }
+            page.addAnnotation(annotation)
+            pdfView.annotationsChanged(on: page)
+            added = true
+        }
+        if added { pdfDocument?.updateChangeCount(.changeDone) }
     }
 
     @objc func addTextNote() {
@@ -181,25 +255,35 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
         page.addAnnotation(annotation)
         pdfDocument?.updateChangeCount(.changeDone)
         pdfView.annotationsChanged(on: page)
+        refreshNotesList()
     }
 
     @objc func deleteSelectedNote() {
         guard let page = pdfView.currentPage else { return }
-        guard let last = page.annotations.last else { return }
+        // Alleen Text-annotaties zijn notities: PDFKit houdt per notitie ook een
+        // gepaarde Popup-annotatie bij, en highlights mogen niet per ongeluk weg.
+        guard let last = page.annotations.last(where: { $0.type == "Text" }) else { return }
         page.removeAnnotation(last)
         pdfDocument?.updateChangeCount(.changeDone)
         pdfView.annotationsChanged(on: page)
+        refreshNotesList()
     }
+
+    // Notitie-lijst in de sidebar (onder de thumbnails)
+    private let notesList = NSStackView()
+    private let notesTitle = NSTextField(labelWithString: "Aantekeningen")
 
     func reloadFromDocument() {
         guard let pdf = pdfDocument?.pdf else {
             sidebarList.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            notesList.arrangedSubviews.forEach { $0.removeFromSuperview() }
             pdfView.document = nil
             status.stringValue = ""
             return
         }
         pdfView.document = pdf
         sidebarList.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        // Thumbnails
         for i in 0..<pdf.pageCount {
             let page = pdf.page(at: i)
             let thumb = thumbnailImage(for: page)
@@ -209,10 +293,64 @@ final class PDFWindowController: NSWindowController, NSToolbarDelegate {
             button.tag = i
             button.isBordered = false
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.setFrameSize(NSSize(width: 160, height: max(1, bounds.height * scale)))
+            let h = max(1, bounds.height * scale)
+            button.widthAnchor.constraint(equalToConstant: 160).isActive = true
+            button.heightAnchor.constraint(equalToConstant: h).isActive = true
             sidebarList.addArrangedSubview(button)
         }
-        status.stringValue = "\(pdf.pageCount) pagina\(pdf.pageCount == 1 ? "" : "s")   ·   PDF"
+        refreshNotesList()
+        status.stringValue = "\(pdf.pageCount) pagina\(pdf.pageCount == 1 ? "" : "s")   ·   PDF   ·   v\(appVersion())"
+    }
+
+    /// Bouwt de notitie-lijst in de sidebar opnieuw op (alle Text-annotaties per
+    /// pagina). Los van reloadFromDocument zodat de lijst direct bijwerkt na
+    /// toevoegen/verwijderen van een notitie zonder het PDF-weergave-venster te resetten.
+    func refreshNotesList() {
+        notesList.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        notesTitle.font = .boldSystemFont(ofSize: 11)
+        notesTitle.textColor = .secondaryLabelColor
+        notesList.addArrangedSubview(notesTitle)
+        guard let pdf = pdfDocument?.pdf else { return }
+        var hasNotes = false
+        for i in 0..<pdf.pageCount {
+            guard let page = pdf.page(at: i) else { continue }
+            for annotation in page.annotations where annotation.type == "Text" {
+                hasNotes = true
+                let contents = (annotation.value(forAnnotationKey: PDFAnnotationKey.contents) as? String) ?? ""
+                let noteLabel = NSTextField(labelWithString: "P.\(i+1): \(contents.prefix(60))")
+                noteLabel.font = .systemFont(ofSize: 10)
+                noteLabel.lineBreakMode = .byTruncatingTail
+                noteLabel.translatesAutoresizingMaskIntoConstraints = false
+                noteLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 180).isActive = true
+                // Klik → ga naar pagina
+                let wrapper = NSView()
+                wrapper.identifier = NSUserInterfaceItemIdentifier("note-\(i)")
+                wrapper.addSubview(noteLabel)
+                noteLabel.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    noteLabel.topAnchor.constraint(equalTo: wrapper.topAnchor),
+                    noteLabel.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+                    noteLabel.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+                    noteLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor)
+                ])
+                wrapper.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(navigateToNotePage(_:))))
+                notesList.addArrangedSubview(wrapper)
+            }
+        }
+        if !hasNotes {
+            let emptyLabel = NSTextField(labelWithString: "(geen notities)")
+            emptyLabel.font = .systemFont(ofSize: 10)
+            emptyLabel.textColor = .tertiaryLabelColor
+            notesList.addArrangedSubview(emptyLabel)
+        }
+    }
+
+    @objc func navigateToNotePage(_ sender: NSClickGestureRecognizer) {
+        guard let view = sender.view,
+              let idStr = view.identifier?.rawValue,
+              let pageIdx = Int(idStr.replacingOccurrences(of: "note-", with: "")),
+              let pdf = pdfDocument?.pdf, let page = pdf.page(at: pageIdx) else { return }
+        pdfView.go(to: page)
     }
 
     func thumbnailImage(for page: PDFPage?) -> NSImage? {

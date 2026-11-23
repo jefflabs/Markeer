@@ -206,7 +206,7 @@ final class EditorWindowController: NSWindowController, NSTextViewDelegate, WKSc
         let words=content.split(whereSeparator:{$0.isWhitespace}).count
         let chars=content.count
         let hintKey=mode==0 ? "status.mode.markdown" : mode==1 ? "status.mode.rich" : "status.mode.split"
-        var statusText="\(L10n.string("status.words", words))   ·   \(L10n.string("status.chars", chars))   ·   \(L10n.string("status.encoding"))   ·   \(L10n.string(hintKey))"
+        var statusText="\(L10n.string("status.words", words))   ·   \(L10n.string("status.chars", chars))   ·   \(L10n.string("status.encoding"))   ·   \(L10n.string(hintKey))   ·   v\(appVersion())"
         if Preferences.load().showFrontMatter, let fm=Markdown.extractFrontMatter(content)?.matter, !fm.entries.isEmpty {
             let preview=fm.entries.prefix(3).map{"\($0.0): \($0.1)"}.joined(separator: " · ")
             statusText+="   ·   \(preview)"

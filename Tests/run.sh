@@ -9,6 +9,7 @@ cp Tests/package.json "$BUILD/js-tests/package.json"
 npm install --cache "$BUILD/npm-cache" --prefix "$BUILD/js-tests" --no-audit --no-fund
 "$BUILD/MarkeerTests" --render Tests/fixture.md > "$BUILD/fixture.json"
 NODE_PATH="$(cd "$BUILD/js-tests/node_modules" && pwd)" node Tests/editor-tests.cjs Tests/fixture.md "$BUILD/fixture.json"
+"$BUILD/MarkeerTests" --pdf
 if curl -s --max-time 2 -o /dev/null http://localhost:11434/api/tags; then
     "$BUILD/MarkeerTests" --askai
 fi

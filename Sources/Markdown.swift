@@ -27,6 +27,14 @@ struct RenderedMarkdown: Codable {
     let references: String
 }
 
+/// Versie-hulpfunctie: leest de bundle-versie (ShortVersionString + build) uit Info.plist.
+public func appVersion() -> String {
+    let info = Bundle.main.infoDictionary
+    let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+    let build = info?["CFBundleVersion"] as? String ?? ""
+    return build.isEmpty ? short : "\(short) (\(build))"
+}
+
 enum Markdown {
     /// Herkent uitsluitend een YAML-front-matterblok op het documentbegin (Jekyll-conventie).
     /// Een lege eerste regel, voorafgaande ruimte of een afsluiting anders dan exact "---"

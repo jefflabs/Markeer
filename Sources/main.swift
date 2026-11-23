@@ -33,7 +33,7 @@ final class AppDelegate:NSObject,NSApplicationDelegate {
         SettingsWindowController.shared.window?.makeKeyAndOrderFront(sender)
     }
     @objc func about(_ sender:Any?) {
-        NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Markeer",.applicationVersion:"1.0.2",.credits:NSAttributedString(string:L10n.string("about.credits"))])
+        NSApp.orderFrontStandardAboutPanel(options:[.applicationName:"Markeer",.applicationVersion:appVersion(),.credits:NSAttributedString(string:L10n.string("about.credits"))])
     }
 }
 let app=NSApplication.shared

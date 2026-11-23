@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+import PDFKit
 
 if let report=Bundle.main.object(forInfoDictionaryKey:"TestReportPath") as? String { freopen(report,"w",stdout);freopen(report,"a",stderr) }
 if CommandLine.arguments.count > 2 && CommandLine.arguments[1] == "--render" {
@@ -217,7 +218,160 @@ check("onbekende key → key zelf", L10n.string("niet.bestaande.key") == "niet.b
 // Gebruikersinhoud/Markdown wordt NIET vertaald: de renderer raakt L10n niet aan.
 let mdOut = Markdown.render("# Titel\n\nHello **world**.").blocks.map(\.html).joined()
 check("Markdown-bron onvertaald door renderer", mdOut.contains("<h1>Titel</h1>") && mdOut.contains("Hello **world**".replacingOccurrences(of:"**",with:"")) || mdOut.contains("<strong>world</strong>"))
+// PDF-markeren (taak #2607): QuadPoints-berekening is puur en moet per quad
+// precies 8 coördinaten opleveren (4 hoekpunten, links-boven start).
+let quads = PDFHighlight.quadPoints([CGRect(x: 1, y: 2, width: 3, height: 4)])
+check("highlight quadPoints = 8 punten per quad", quads == [1,2,4,2,4,6,1,6])
+let multipleQuads = PDFHighlight.quadPoints([CGRect(x: 0, y: 0, width: 1, height: 1), CGRect(x: 5, y: 6, width: 2, height: 3)])
+check("highlight quadPoints meerdere quads", multipleQuads.count == 16 && multipleQuads[8] == 5)
+let hlAnno = PDFHighlight.annotation(forRects: [CGRect(x: 1, y: 2, width: 3, height: 4)])
+check("highlight-annotatie heeft Highlight-type", hlAnno.type == "Highlight")
+// PDFKit normaliseert QuadPoints naar NSPoint-paren: 1 quad = 4 punten.
+let hlPoints = hlAnno.value(forAnnotationKey: PDFAnnotationKey.quadPoints) as? [NSPoint]
+check("highlight-annotatie heeft quadPoints (4 punten per quad)",
+      hlPoints?.count == 4 && hlPoints?[0] == NSPoint(x: 1, y: 2) && hlPoints?[3] == NSPoint(x: 1, y: 6))
 if CommandLine.arguments.contains("--parser-only") { print("\(failures) failures");exit(failures==0 ? 0:1) }
+
+// --pdf: echte vensterchecks voor de PDF-modus (thumbnails, markeren, notities).
+// Vereist een grafische sessie (WindowServer), zoals de overige native checks.
+if CommandLine.arguments.contains("--pdf") {
+    var pdfFailures = 0
+    func pdfcheck(_ name: String, _ condition: @autoclosure () -> Bool) {
+        if condition() { print("PASS \(name)") } else { pdfFailures += 1; print("FAIL \(name)") }
+    }
+    // Deterministische 2-pagina PDF met echte, selecteerbare tekst.
+    // Objecten: 1 catalog, 2 pages, 3 font, per pagina k: 4+2k pagina, 5+2k content.
+    func minimalTextPDF(pages: [String]) -> Data {
+        var out = "%PDF-1.4\n"
+        var offsets: [Int] = []
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "(", with: "\\(").replacingOccurrences(of: ")", with: "\\)")
+        }
+        func obj(_ n: Int, _ body: String) {
+            while offsets.count <= n { offsets.append(0) }
+            offsets[n] = out.utf8.count
+            out += "\(n) 0 obj\n\(body)\nendobj\n"
+        }
+        let n = pages.count
+        let maxObj = 3 + 2 * n  // 1 catalog, 2 pages, 3 font, daarna 2 objecten per pagina
+        let pageRefs = (0..<n).map { "\(4 + 2*$0) 0 R" }.joined(separator: " ")
+        obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
+        obj(2, "<< /Type /Pages /Kids [\(pageRefs)] /Count \(n) >>")
+        obj(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        for (i, text) in pages.enumerated() {
+            let stream = "BT /F1 12 Tf 72 770 Td (\(esc(text))) Tj ET"
+            obj(4 + 2*i, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents \(5 + 2*i) 0 R >>")
+            obj(5 + 2*i, "<< /Length \(stream.utf8.count) >>\nstream\n\(stream)\nendstream")
+        }
+        let xrefOffset = out.utf8.count
+        out += "xref\n0 \(maxObj + 1)\n0000000000 65535 f \n"
+        for i in 1...maxObj { out += String(format: "%010d 00000 n \n", offsets[i]) }
+        out += "trailer\n<< /Size \(maxObj + 1) /Root 1 0 R >>\nstartxref\n\(xrefOffset)\n%%EOF\n"
+        return Data(out.utf8)
+    }
+    func labelStrings(in view: NSView) -> [String] {
+        var result: [String] = []
+        for sub in view.subviews {
+            if let tf = sub as? NSTextField { result.append(tf.stringValue) }
+            result += labelStrings(in: sub)
+        }
+        return result
+    }
+    func viewWithIdentifier(_ identifier: String, in view: NSView) -> NSView? {
+        if view.identifier?.rawValue == identifier { return view }
+        for sub in view.subviews {
+            if let found = viewWithIdentifier(identifier, in: sub) { return found }
+        }
+        return nil
+    }
+    let pdfData = minimalTextPDF(pages: ["Eerste pagina: selecteer deze tekst.", "Tweede pagina: andere inhoud."])
+    let doc = MarkeerPDFDocument()
+    try! doc.read(from: pdfData, ofType: "public.pdf")
+    guard let pdf = doc.pdf, pdf.pageCount == 2,
+          pdf.page(at: 0)?.string?.contains("Eerste pagina") == true else {
+        print("FAIL test-PDF onleesbaar door PDFKit"); print("1 failures"); exit(1)
+    }
+    doc.makeWindowControllers()
+    guard let controller = doc.windowControllers.first as? PDFWindowController, let window = controller.window else {
+        print("FAIL PDF-windowcontroller ontbreekt"); print("1 failures"); exit(1)
+    }
+    // De split-view verdeelt zijn panelen pas bij de eerste weergave; toon de
+    // window dus even en dwing daarna de layout af.
+    window.makeKeyAndOrderFront(nil)
+    window.layoutIfNeeded()
+    window.contentView?.layoutSubtreeIfNeeded()
+    // 1) Thumbnails: één per pagina, niet 0×0 (de oorspronkelijke bug uit #2603).
+    let buttons = controller.sidebarList.arrangedSubviews.compactMap { $0 as? NSButton }
+    pdfcheck("thumbnails: één per pagina", buttons.count == 2)
+    pdfcheck("thumbnails: zichtbaar (niet 0×0)", buttons.allSatisfy { $0.frame.width > 100 && $0.frame.height > 100 })
+    // Klik op thumbnail navigeert naar de juiste pagina.
+    if buttons.count == 2 {
+        controller.gotoPage(buttons[1])
+        pdfcheck("thumbnail-klik navigeert naar pagina 2", controller.pdfView.currentPage === pdf.page(at: 1))
+        controller.gotoPage(buttons[0])
+        pdfcheck("thumbnail-klik navigeert terug naar pagina 1", controller.pdfView.currentPage === pdf.page(at: 0))
+    }
+    // 2) Notities: icoon-annotatie verschijnt in de lijst per pagina, klik navigeert.
+    let note = PDFAnnotation(bounds: NSRect(x: 480, y: 780, width: 40, height: 30), forType: .text, withProperties: [
+        PDFAnnotationKey.contents: "Testnotitie voor de lijst."
+    ])
+    pdf.page(at: 0)!.addAnnotation(note)
+    controller.refreshNotesList()
+    let sidebarLabels = labelStrings(in: controller.sidebar)
+    pdfcheck("notitie verschijnt in lijst (P.1 + tekst)", sidebarLabels.contains("P.1: Testnotitie voor de lijst."))
+    if let wrapper = viewWithIdentifier("note-0", in: controller.sidebar),
+       let recognizer = wrapper.gestureRecognizers.first as? NSClickGestureRecognizer {
+        controller.gotoPage(buttons[1])
+        controller.navigateToNotePage(recognizer)
+        pdfcheck("notitie-klik navigeert naar pagina 1", controller.pdfView.currentPage === pdf.page(at: 0))
+    } else { pdfcheck("notitie-klik navigeert naar pagina 1", false) }
+    // Verwijderen van de notitie werkt de lijst direct bij.
+    controller.deleteSelectedNote()
+    pdfcheck("na verwijderen: lijst toont (geen notities)", labelStrings(in: controller.sidebar).contains("(geen notities)"))
+    // 3) Markeren: selectie + marker-knop = alleen de geselecteerde tekst geel.
+    // De tekst staat op (72, 770) in Helvetica 12pt; het woord "selecteer" ligt
+    // ongeveer op x 153–203, dus een punt in (178, 774) valt in het woord.
+    let page0 = pdf.page(at: 0)!
+    guard let selected = page0.selectionForWord(at: CGPoint(x: 178, y: 774)),
+          selected.string?.contains("selecteer") == true else {
+        print("FAIL kon tekstselectie niet opbouwen (\(page0.selectionForWord(at: CGPoint(x: 178, y: 774))?.string ?? "nil"))");
+        print("\(pdfFailures + 1) failures"); exit(1)
+    }
+    let before = page0.annotations.count
+    controller.pdfView.currentSelection = selected
+    controller.addHighlight()
+    let highlights = page0.annotations.filter { $0.type == "Highlight" }
+    pdfcheck("marker-knop voegt highlight toe", highlights.count == 1 && page0.annotations.count == before + 1)
+    // PDFAnnotation heeft in deze SDK geen bounds(for:); de effectieve omvatting
+    // is de unie van de quadPoints-rects (PDFKit slaat QuadPoints op als NSPoints,
+    // 4 punten per quad).
+    func unionOfQuads(_ points: [NSPoint]) -> CGRect {
+        var union = CGRect.null
+        var i = 0
+        while i + 3 < points.count {
+            let quad = points[i..<i+4]
+            let xs = quad.map(\.x), ys = quad.map(\.y)
+            union = union.union(CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!))
+            i += 4
+        }
+        return union
+    }
+    let highlightQuads = highlights.first.flatMap { $0.value(forAnnotationKey: PDFAnnotationKey.quadPoints) as? [NSPoint] } ?? []
+    let highlightBounds = unionOfQuads(highlightQuads)
+    let pageBounds = page0.bounds(for: .mediaBox)
+    pdfcheck("highlight omvat alleen de selectie (niet de hele pagina)",
+             highlightBounds.height > 0 && highlightBounds.height < pageBounds.height * 0.25)
+    pdfcheck("highlight heeft quadPoints (4 punten per quad)", highlightQuads.count >= 4 && highlightQuads.count % 4 == 0)
+    // Zonder selectie: no-op (geen annotatie, zeker geen hele pagina).
+    controller.pdfView.currentSelection = nil
+    let beforeNoop = page0.annotations.count
+    controller.addHighlight()
+    pdfcheck("marker-knop zonder selectie = no-op", page0.annotations.count == beforeNoop)
+    // 4) Statusbalk: paginas, PDF en versie.
+    pdfcheck("statusbalk toont paginas + PDF", controller.status.stringValue.contains("2 pagina") && controller.status.stringValue.contains("PDF"))
+    print("\(pdfFailures) failures")
+    exit(pdfFailures == 0 ? 0 : 1)
+}
 if CommandLine.arguments.contains("--askai") {
     var askAIFailures = 0
     func askAIcheck(_ name: String, _ condition: @autoclosure () -> Bool) {
