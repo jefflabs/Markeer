@@ -239,9 +239,10 @@ if CommandLine.arguments.contains("--pdf") {
     func pdfcheck(_ name: String, _ condition: @autoclosure () -> Bool) {
         if condition() { print("PASS \(name)") } else { pdfFailures += 1; print("FAIL \(name)") }
     }
-    // Deterministische 2-pagina PDF met echte, selecteerbare tekst.
+    // Deterministische 2-pagina PDF met echte, selecteerbare tekst (regel per
+    // Tekstobject, Helvetica 12pt, eerste baseline y=770, regelafstand 30).
     // Objecten: 1 catalog, 2 pages, 3 font, per pagina k: 4+2k pagina, 5+2k content.
-    func minimalTextPDF(pages: [String]) -> Data {
+    func minimalTextPDF(pages: [[String]]) -> Data {
         var out = "%PDF-1.4\n"
         var offsets: [Int] = []
         func esc(_ s: String) -> String {
@@ -258,8 +259,13 @@ if CommandLine.arguments.contains("--pdf") {
         obj(1, "<< /Type /Catalog /Pages 2 0 R >>")
         obj(2, "<< /Type /Pages /Kids [\(pageRefs)] /Count \(n) >>")
         obj(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-        for (i, text) in pages.enumerated() {
-            let stream = "BT /F1 12 Tf 72 770 Td (\(esc(text))) Tj ET"
+        for (i, lines) in pages.enumerated() {
+            var stream = "BT /F1 12 Tf 72 770 Td"
+            for (j, text) in lines.enumerated() {
+                if j > 0 { stream += " 0 -30 Td" }
+                stream += " (\(esc(text))) Tj"
+            }
+            stream += " ET"
             obj(4 + 2*i, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents \(5 + 2*i) 0 R >>")
             obj(5 + 2*i, "<< /Length \(stream.utf8.count) >>\nstream\n\(stream)\nendstream")
         }
@@ -284,7 +290,10 @@ if CommandLine.arguments.contains("--pdf") {
         }
         return nil
     }
-    let pdfData = minimalTextPDF(pages: ["Eerste pagina: selecteer deze tekst.", "Tweede pagina: andere inhoud."])
+    let pdfData = minimalTextPDF(pages: [
+        ["Eerste pagina: selecteer deze tekst met de marker.", "Tweede regel: meerregelige selecties werken ook."],
+        ["Tweede pagina: andere inhoud."]
+    ])
     let doc = MarkeerPDFDocument()
     try! doc.read(from: pdfData, ofType: "public.pdf")
     guard let pdf = doc.pdf, pdf.pageCount == 2,
@@ -304,6 +313,10 @@ if CommandLine.arguments.contains("--pdf") {
     let buttons = controller.sidebarList.arrangedSubviews.compactMap { $0 as? NSButton }
     pdfcheck("thumbnails: één per pagina", buttons.count == 2)
     pdfcheck("thumbnails: zichtbaar (niet 0×0)", buttons.allSatisfy { $0.frame.width > 100 && $0.frame.height > 100 })
+    // De oorspronkelijke bug was tevens een onzichtbaar sidebar-paneel (0 breed);
+    // meet daarom het paneel en de content, niet alleen de knopframes.
+    pdfcheck("sidebar-paneel is zichtbaar (split-view verdeelt)", controller.sidebar.frame.width > 100)
+    pdfcheck("sidebar-content heeft breedte (documentView gekoppeld)", (controller.sidebar.documentView?.frame.width ?? 0) > 100)
     // Klik op thumbnail navigeert naar de juiste pagina.
     if buttons.count == 2 {
         controller.gotoPage(buttons[1])
@@ -367,6 +380,26 @@ if CommandLine.arguments.contains("--pdf") {
     let beforeNoop = page0.annotations.count
     controller.addHighlight()
     pdfcheck("marker-knop zonder selectie = no-op", page0.annotations.count == beforeNoop)
+    // Meerregelige selectie (beide regels van pagina 1) → één annotatie met twee quads.
+    // Regels staan op baseline 770 en 740; het rect omsluit beide tekstlichamen.
+    // ObjC selectionForRect: wordt in Swift selection(for:) afgebeeld.
+    if let rectSelection = page0.selection(for: CGRect(x: 72, y: 730, width: 300, height: 52)),
+       rectSelection.string?.contains("selecteer") == true,
+       rectSelection.string?.contains("meerregelige") == true {
+        controller.pdfView.currentSelection = rectSelection
+        controller.addHighlight()
+    }
+    let allHighlights = page0.annotations.filter { $0.type == "Highlight" }
+    pdfcheck("meerregelige selectie wordt gemarkeerd", allHighlights.count == 2)
+    let multiQuads = allHighlights.last.flatMap { $0.value(forAnnotationKey: PDFAnnotationKey.quadPoints) as? [NSPoint] } ?? []
+    pdfcheck("meerregelige highlight heeft twee quads", multiQuads.count >= 8 && multiQuads.count % 4 == 0)
+    let multiBounds = unionOfQuads(multiQuads)
+    pdfcheck("meerregelige highlight spant beide regels", multiBounds.height > 30 && multiBounds.height < pageBounds.height * 0.25)
+    // Rondtrip: opslaan + heropenen behoudt beide highlights met quadPoints.
+    let reopened = pdf.dataRepresentation().flatMap { PDFKit.PDFDocument(data: $0) }
+    let reopenedHighlights = reopened?.page(at: 0)?.annotations.filter { $0.type == "Highlight" } ?? []
+    pdfcheck("highlights overleven opslaan + heropenen", reopenedHighlights.count == 2)
+    pdfcheck("heropenen: quadPoints intact", reopenedHighlights.allSatisfy { ($0.value(forAnnotationKey: PDFAnnotationKey.quadPoints) as? [NSPoint])?.count ?? 0 >= 4 })
     // 4) Statusbalk: paginas, PDF en versie.
     pdfcheck("statusbalk toont paginas + PDF", controller.status.stringValue.contains("2 pagina") && controller.status.stringValue.contains("PDF"))
     print("\(pdfFailures) failures")

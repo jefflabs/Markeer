@@ -24,7 +24,7 @@ enum PDFHighlight {
 final class MarkeerPDFDocument: NSDocument {
     var pdf: PDFKit.PDFDocument? { didSet { documentChanged() } }
     override class var autosavesInPlace: Bool { true }
-    override var autosavingFileType: String? { "public.pdf" }
+    override var autosavingFileType: String? { "com.adobe.pdf" }
     override func makeWindowControllers() {
         let controller = PDFWindowController(document: self)
         addWindowController(controller)
